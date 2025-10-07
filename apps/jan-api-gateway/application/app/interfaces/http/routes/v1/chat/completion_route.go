@@ -15,14 +15,12 @@ import (
 
 // CompletionAPI handles chat completion requests with streaming support by delegating to the shared chat completion client.
 type CompletionAPI struct {
-	chatClient  *chatclient.ChatCompletionClient
-	authService *auth.AuthService
+	chatClient *chatclient.ChatCompletionClient
 }
 
 func NewCompletionAPI(chatClient *chatclient.ChatCompletionClient, authService *auth.AuthService) *CompletionAPI {
 	return &CompletionAPI{
-		chatClient:  chatClient,
-		authService: authService,
+		chatClient: chatClient,
 	}
 }
 
@@ -74,16 +72,6 @@ func (cApi *CompletionAPI) PostCompletion(reqCtx *gin.Context) {
 		reqCtx.AbortWithStatusJSON(http.StatusBadRequest, responses.ErrorResponse{
 			Code:  "0199600f-2cbe-7518-be5c-9989cce59472",
 			Error: "messages cannot be empty",
-		})
-		return
-	}
-
-	// Get authenticated user (required for API access)
-	user, ok := auth.GetUserFromContext(reqCtx)
-	if !ok || user == nil {
-		reqCtx.AbortWithStatusJSON(http.StatusUnauthorized, responses.ErrorResponse{
-			Code:  "0199600b-961c-71ba-846b-9ca5b384e382",
-			Error: "user not authenticated",
 		})
 		return
 	}

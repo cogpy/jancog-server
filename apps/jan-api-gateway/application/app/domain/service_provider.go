@@ -29,5 +29,5 @@ var ServiceProvider = wire.NewSet(
 	response.NewStreamModelService,
 	response.NewNonStreamModelService,
 	serpermcp.NewSerperService,
-	cron.NewService,
+	cron.NewCronService,
 )

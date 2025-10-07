@@ -81,7 +81,7 @@ func CreateApplication() (*Application, error) {
 	client := inference.NewJanRestyClient()
 	chatCompletionClient := inference.NewJanChatCompletionClient(client)
 	completionAPI := chat.NewCompletionAPI(chatCompletionClient, authService)
-	chatRoute := chat.NewChatRoute(authService, completionAPI)
+	chatRoute := chat.NewChatRoute(completionAPI)
 	conversationRepository := conversationrepo.NewConversationGormRepository(transactionDatabase)
 	itemRepository := itemrepo.NewItemGormRepository(transactionDatabase)
 	conversationService := conversation.NewService(conversationRepository, itemRepository)
@@ -109,7 +109,7 @@ func CreateApplication() (*Application, error) {
 	responseRoute := responses.NewResponseRoute(responseModelService, authService, responseService, streamModelService, nonStreamModelService)
 	v1Route := v1.NewV1Route(organizationRoute, chatRoute, convChatRoute, workspaceRoute, conversationAPI, modelAPI, mcpapi, authRoute, responseRoute)
 	httpServer := http.NewHttpServer(v1Route)
-	cronService := cron.NewService(chatModelClient)
+	cronService := cron.NewCronService()
 	application := &Application{
 		HttpServer:  httpServer,
 		CronService: cronService,
