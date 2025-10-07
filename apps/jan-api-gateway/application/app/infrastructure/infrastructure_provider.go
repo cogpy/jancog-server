@@ -10,6 +10,5 @@ var InfrastructureProvider = wire.NewSet(
 	inference.NewJanRestyClient,
 	inference.NewJanChatCompletionClient,
 	inference.NewJanChatModelClient,
-	inference.NewJanInferenceProvider,
 	cache.NewRedisCacheService,
 )
