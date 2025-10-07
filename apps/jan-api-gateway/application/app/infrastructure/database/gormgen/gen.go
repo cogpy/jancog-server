@@ -21,10 +21,13 @@ var (
 	Conversation       *conversation
 	Invite             *invite
 	Item               *item
+	ModelCatalog       *modelCatalog
 	Organization       *organization
 	OrganizationMember *organizationMember
 	Project            *project
 	ProjectMember      *projectMember
+	Provider           *provider
+	ProviderModel      *providerModel
 	Response           *response
 	User               *user
 	Workspace          *workspace
@@ -36,10 +39,13 @@ func SetDefault(db *gorm.DB, opts ...gen.DOOption) {
 	Conversation = &Q.Conversation
 	Invite = &Q.Invite
 	Item = &Q.Item
+	ModelCatalog = &Q.ModelCatalog
 	Organization = &Q.Organization
 	OrganizationMember = &Q.OrganizationMember
 	Project = &Q.Project
 	ProjectMember = &Q.ProjectMember
+	Provider = &Q.Provider
+	ProviderModel = &Q.ProviderModel
 	Response = &Q.Response
 	User = &Q.User
 	Workspace = &Q.Workspace
@@ -52,10 +58,13 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 		Conversation:       newConversation(db, opts...),
 		Invite:             newInvite(db, opts...),
 		Item:               newItem(db, opts...),
+		ModelCatalog:       newModelCatalog(db, opts...),
 		Organization:       newOrganization(db, opts...),
 		OrganizationMember: newOrganizationMember(db, opts...),
 		Project:            newProject(db, opts...),
 		ProjectMember:      newProjectMember(db, opts...),
+		Provider:           newProvider(db, opts...),
+		ProviderModel:      newProviderModel(db, opts...),
 		Response:           newResponse(db, opts...),
 		User:               newUser(db, opts...),
 		Workspace:          newWorkspace(db, opts...),
@@ -69,10 +78,13 @@ type Query struct {
 	Conversation       conversation
 	Invite             invite
 	Item               item
+	ModelCatalog       modelCatalog
 	Organization       organization
 	OrganizationMember organizationMember
 	Project            project
 	ProjectMember      projectMember
+	Provider           provider
+	ProviderModel      providerModel
 	Response           response
 	User               user
 	Workspace          workspace
@@ -87,10 +99,13 @@ func (q *Query) clone(db *gorm.DB) *Query {
 		Conversation:       q.Conversation.clone(db),
 		Invite:             q.Invite.clone(db),
 		Item:               q.Item.clone(db),
+		ModelCatalog:       q.ModelCatalog.clone(db),
 		Organization:       q.Organization.clone(db),
 		OrganizationMember: q.OrganizationMember.clone(db),
 		Project:            q.Project.clone(db),
 		ProjectMember:      q.ProjectMember.clone(db),
+		Provider:           q.Provider.clone(db),
+		ProviderModel:      q.ProviderModel.clone(db),
 		Response:           q.Response.clone(db),
 		User:               q.User.clone(db),
 		Workspace:          q.Workspace.clone(db),
@@ -112,10 +127,13 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 		Conversation:       q.Conversation.replaceDB(db),
 		Invite:             q.Invite.replaceDB(db),
 		Item:               q.Item.replaceDB(db),
+		ModelCatalog:       q.ModelCatalog.replaceDB(db),
 		Organization:       q.Organization.replaceDB(db),
 		OrganizationMember: q.OrganizationMember.replaceDB(db),
 		Project:            q.Project.replaceDB(db),
 		ProjectMember:      q.ProjectMember.replaceDB(db),
+		Provider:           q.Provider.replaceDB(db),
+		ProviderModel:      q.ProviderModel.replaceDB(db),
 		Response:           q.Response.replaceDB(db),
 		User:               q.User.replaceDB(db),
 		Workspace:          q.Workspace.replaceDB(db),
@@ -127,10 +145,13 @@ type queryCtx struct {
 	Conversation       IConversationDo
 	Invite             IInviteDo
 	Item               IItemDo
+	ModelCatalog       IModelCatalogDo
 	Organization       IOrganizationDo
 	OrganizationMember IOrganizationMemberDo
 	Project            IProjectDo
 	ProjectMember      IProjectMemberDo
+	Provider           IProviderDo
+	ProviderModel      IProviderModelDo
 	Response           IResponseDo
 	User               IUserDo
 	Workspace          IWorkspaceDo
@@ -142,10 +163,13 @@ func (q *Query) WithContext(ctx context.Context) *queryCtx {
 		Conversation:       q.Conversation.WithContext(ctx),
 		Invite:             q.Invite.WithContext(ctx),
 		Item:               q.Item.WithContext(ctx),
+		ModelCatalog:       q.ModelCatalog.WithContext(ctx),
 		Organization:       q.Organization.WithContext(ctx),
 		OrganizationMember: q.OrganizationMember.WithContext(ctx),
 		Project:            q.Project.WithContext(ctx),
 		ProjectMember:      q.ProjectMember.WithContext(ctx),
+		Provider:           q.Provider.WithContext(ctx),
+		ProviderModel:      q.ProviderModel.WithContext(ctx),
 		Response:           q.Response.WithContext(ctx),
 		User:               q.User.WithContext(ctx),
 		Workspace:          q.Workspace.WithContext(ctx),
