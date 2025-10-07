@@ -430,7 +430,7 @@ func (c *ChatCompletionClient) handleStreamingToolCall(toolCall *openai.ToolCall
 		return
 	}
 
-	index := toolCall.Index
+	index := *toolCall.Index
 	if accumulator[index] == nil {
 		accumulator[index] = &toolCallAccumulator{
 			ID:    toolCall.ID,
@@ -561,6 +561,10 @@ func (c *ChatCompletionClient) sendAsyncError(errChan chan<- error, err error) {
 	case errChan <- err:
 	default:
 	}
+}
+
+func (c *ChatCompletionClient) BaseURL() string {
+	return c.baseURL
 }
 
 func normalizeBaseURL(base string) string {

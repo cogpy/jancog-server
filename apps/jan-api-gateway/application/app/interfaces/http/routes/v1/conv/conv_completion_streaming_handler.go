@@ -13,7 +13,7 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 	"menlo.ai/jan-api-gateway/app/domain/common"
 	"menlo.ai/jan-api-gateway/app/domain/conversation"
-	"menlo.ai/jan-api-gateway/app/domain/inference"
+	chatclient "menlo.ai/jan-api-gateway/app/utils/httpclients/chat"
 	"menlo.ai/jan-api-gateway/app/utils/logger"
 )
 
@@ -28,14 +28,14 @@ const (
 
 // CompletionStreamHandler handles streaming chat completions
 type CompletionStreamHandler struct {
-	inferenceProvider   inference.InferenceProvider
+	chatClient          *chatclient.ChatCompletionClient
 	conversationService *conversation.ConversationService
 }
 
 // NewCompletionStreamHandler creates a new CompletionStreamHandler
-func NewCompletionStreamHandler(inferenceProvider inference.InferenceProvider, conversationService *conversation.ConversationService) *CompletionStreamHandler {
+func NewCompletionStreamHandler(chatClient *chatclient.ChatCompletionClient, conversationService *conversation.ConversationService) *CompletionStreamHandler {
 	return &CompletionStreamHandler{
-		inferenceProvider:   inferenceProvider,
+		chatClient:          chatClient,
 		conversationService: conversationService,
 	}
 }
@@ -65,8 +65,8 @@ func (s *CompletionStreamHandler) StreamCompletionAndAccumulateResponse(reqCtx *
 	ctx, cancel := context.WithTimeout(reqCtx.Request.Context(), RequestTimeout)
 	defer cancel()
 
-	// Set up SSE headers
-	s.setupSSEHeaders(reqCtx)
+	// Set up SSE headers using shared chat client helper
+	s.chatClient.SetupSSEHeaders(reqCtx)
 
 	// Send conversation metadata event first
 	if conv != nil {
@@ -171,7 +171,7 @@ func (s *CompletionStreamHandler) streamResponseToChannel(ctx context.Context, a
 	defer wg.Done()
 
 	// Get streaming reader from inference provider
-	reader, err := s.inferenceProvider.CreateCompletionStream(ctx, apiKey, request)
+	reader, err := s.chatClient.CreateChatCompletionStream(ctx, apiKey, request)
 	if err != nil {
 		errChan <- err
 		return
@@ -200,15 +200,6 @@ func (s *CompletionStreamHandler) streamResponseToChannel(ctx context.Context, a
 		errChan <- err
 		return
 	}
-}
-
-// setupSSEHeaders sets up the required headers for Server-Sent Events
-func (s *CompletionStreamHandler) setupSSEHeaders(reqCtx *gin.Context) {
-	reqCtx.Header("Content-Type", "text/event-stream")
-	reqCtx.Header("Cache-Control", "no-cache")
-	reqCtx.Header("Connection", "keep-alive")
-	reqCtx.Header("Access-Control-Allow-Origin", "*")
-	reqCtx.Header("Access-Control-Allow-Headers", "Cache-Control")
 }
 
 // writeSSELine writes a line to the SSE stream

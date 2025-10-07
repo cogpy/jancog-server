@@ -18,4 +18,10 @@ const (
 
 	// UserByPublicIDKey is the cache key template for user lookups by public ID.
 	UserByPublicIDKey = CacheVersion + ":user:public_id:%s"
+
+	// RegistryEndpointModelsKey is the cache key for endpoint to models mapping
+	RegistryEndpointModelsKey = CacheVersion + ":registry:endpoint_models"
+
+	// RegistryModelEndpointsKey is the cache key for model to endpoints mapping
+	RegistryModelEndpointsKey = CacheVersion + ":registry:model_endpoints"
 )

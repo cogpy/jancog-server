@@ -6,33 +6,30 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 	"menlo.ai/jan-api-gateway/app/domain/common"
 	"menlo.ai/jan-api-gateway/app/domain/conversation"
-	"menlo.ai/jan-api-gateway/app/domain/inference"
+	chatclient "menlo.ai/jan-api-gateway/app/utils/httpclients/chat"
 )
 
 // CompletionNonStreamHandler handles non-streaming completion business logic
 type CompletionNonStreamHandler struct {
-	inferenceProvider   inference.InferenceProvider
+	chatClient          *chatclient.ChatCompletionClient
 	conversationService *conversation.ConversationService
 }
 
 // NewCompletionNonStreamHandler creates a new CompletionNonStreamHandler instance
-func NewCompletionNonStreamHandler(inferenceProvider inference.InferenceProvider, conversationService *conversation.ConversationService) *CompletionNonStreamHandler {
+func NewCompletionNonStreamHandler(chatClient *chatclient.ChatCompletionClient, conversationService *conversation.ConversationService) *CompletionNonStreamHandler {
 	return &CompletionNonStreamHandler{
-		inferenceProvider:   inferenceProvider,
+		chatClient:          chatClient,
 		conversationService: conversationService,
 	}
 }
 
-// CallCompletionAndGetRestResponse calls the inference model and returns a non-streaming REST response
+// CallCompletionAndGetRestResponse calls the chat completion client and returns a non-streaming REST response
 func (uc *CompletionNonStreamHandler) CallCompletionAndGetRestResponse(ctx context.Context, apiKey string, request openai.ChatCompletionRequest) (*ExtendedCompletionResponse, *common.Error) {
-
-	// Call inference provider
-	response, err := uc.inferenceProvider.CreateCompletion(ctx, apiKey, request)
+	response, err := uc.chatClient.CreateChatCompletion(ctx, apiKey, request)
 	if err != nil {
 		return nil, common.NewError(err, "c7d8e9f0-g1h2-3456-cdef-789012345678")
 	}
 
-	// Convert response
 	return uc.ConvertResponse(response), nil
 }
 

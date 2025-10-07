@@ -11,7 +11,6 @@ import (
 	"menlo.ai/jan-api-gateway/app/domain/cron"
 	"menlo.ai/jan-api-gateway/app/infrastructure/database"
 	apphttp "menlo.ai/jan-api-gateway/app/interfaces/http"
-	janinference "menlo.ai/jan-api-gateway/app/utils/httpclients/jan_inference"
 	"menlo.ai/jan-api-gateway/app/utils/httpclients/serper"
 	"menlo.ai/jan-api-gateway/app/utils/logger"
 	"menlo.ai/jan-api-gateway/config/environment_variables"
@@ -37,8 +36,6 @@ func (application *Application) Start() {
 func init() {
 	logger.GetLogger()
 	environment_variables.EnvironmentVariables.LoadFromEnv()
-	// TODO: refactoring: singleton.
-	janinference.Init()
 	serper.Init()
 }
 

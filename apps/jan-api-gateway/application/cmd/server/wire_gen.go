@@ -7,7 +7,6 @@
 package main
 
 import (
-	"context"
 	"gorm.io/gorm"
 	"menlo.ai/jan-api-gateway/app/domain/apikey"
 	"menlo.ai/jan-api-gateway/app/domain/auth"
@@ -48,7 +47,6 @@ import (
 	"menlo.ai/jan-api-gateway/app/interfaces/http/routes/v1/organization/projects"
 	"menlo.ai/jan-api-gateway/app/interfaces/http/routes/v1/organization/projects/api_keys"
 	"menlo.ai/jan-api-gateway/app/interfaces/http/routes/v1/responses"
-	"menlo.ai/jan-api-gateway/app/utils/httpclients/jan_inference"
 )
 
 import (
@@ -81,17 +79,17 @@ func CreateApplication() (*Application, error) {
 	projectsRoute := projects.NewProjectsRoute(projectService, apiKeyService, authService, projectApiKeyRoute)
 	invitesRoute := invites.NewInvitesRoute(inviteService, projectService, organizationService, authService)
 	organizationRoute := organization2.NewOrganizationRoute(adminApiKeyAPI, projectsRoute, invitesRoute, authService)
-	context := provideContext()
-	janInferenceClient := janinference.NewJanInferenceClient(context)
-	inferenceProvider := inference.NewJanInferenceProvider(janInferenceClient)
-	completionAPI := chat.NewCompletionAPI(inferenceProvider, authService)
+	client := inference.NewJanRestyClient()
+	chatCompletionClient := inference.NewJanChatCompletionClient(client)
+	completionAPI := chat.NewCompletionAPI(chatCompletionClient, authService)
 	chatRoute := chat.NewChatRoute(authService, completionAPI)
 	conversationRepository := conversationrepo.NewConversationGormRepository(transactionDatabase)
 	itemRepository := itemrepo.NewItemGormRepository(transactionDatabase)
 	conversationService := conversation.NewService(conversationRepository, itemRepository)
-	completionNonStreamHandler := conv.NewCompletionNonStreamHandler(inferenceProvider, conversationService)
-	completionStreamHandler := conv.NewCompletionStreamHandler(inferenceProvider, conversationService)
-	inferenceModelRegistry := inferencemodelregistry.NewInferenceModelRegistry(redisCacheService, janInferenceClient)
+	completionNonStreamHandler := conv.NewCompletionNonStreamHandler(chatCompletionClient, conversationService)
+	completionStreamHandler := conv.NewCompletionStreamHandler(chatCompletionClient, conversationService)
+	inferenceProvider := inference.NewJanInferenceProvider(chatCompletionClient, client)
+	inferenceModelRegistry := inferencemodelregistry.NewInferenceModelRegistry(redisCacheService, inferenceProvider, chatCompletionClient)
 	convCompletionAPI := conv.NewConvCompletionAPI(completionNonStreamHandler, completionStreamHandler, conversationService, authService, inferenceModelRegistry)
 	serperService := serpermcp.NewSerperService()
 	serperMCP := mcpimpl.NewSerperMCP(serperService)
@@ -107,13 +105,13 @@ func CreateApplication() (*Application, error) {
 	authRoute := auth2.NewAuthRoute(googleAuthAPI, userService, authService)
 	responseRepository := responserepo.NewResponseGormRepository(transactionDatabase)
 	responseService := response.NewResponseService(responseRepository, itemRepository, conversationService)
-	responseModelService := response.NewResponseModelService(userService, authService, apiKeyService, conversationService, responseService, inferenceModelRegistry)
+	responseModelService := response.NewResponseModelService(userService, authService, apiKeyService, conversationService, responseService, inferenceModelRegistry, chatCompletionClient)
 	streamModelService := response.NewStreamModelService(responseModelService)
 	nonStreamModelService := response.NewNonStreamModelService(responseModelService)
 	responseRoute := responses.NewResponseRoute(responseModelService, authService, responseService, streamModelService, nonStreamModelService)
 	v1Route := v1.NewV1Route(organizationRoute, chatRoute, convChatRoute, workspaceRoute, conversationAPI, modelAPI, mcpapi, authRoute, responseRoute)
 	httpServer := http.NewHttpServer(v1Route)
-	cronService := cron.NewService(janInferenceClient, inferenceModelRegistry)
+	cronService := cron.NewService(inferenceModelRegistry)
 	application := &Application{
 		HttpServer:  httpServer,
 		CronService: cronService,
@@ -146,8 +144,4 @@ func CreateDataInitializer() (*DataInitializer, error) {
 
 func ProvideDatabase() *gorm.DB {
 	return database.DB
-}
-
-func provideContext() context.Context {
-	return context.Background()
 }

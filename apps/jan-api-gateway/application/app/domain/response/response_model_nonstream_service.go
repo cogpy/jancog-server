@@ -11,7 +11,6 @@ import (
 	"menlo.ai/jan-api-gateway/app/domain/conversation"
 	requesttypes "menlo.ai/jan-api-gateway/app/interfaces/http/requests"
 	responsetypes "menlo.ai/jan-api-gateway/app/interfaces/http/responses"
-	janinference "menlo.ai/jan-api-gateway/app/utils/httpclients/jan_inference"
 	"menlo.ai/jan-api-gateway/app/utils/logger"
 	"menlo.ai/jan-api-gateway/app/utils/ptr"
 )
@@ -52,11 +51,13 @@ func (h *NonStreamModelService) CreateNonStreamResponseHandler(reqCtx *gin.Conte
 
 // doCreateNonStreamResponse performs the business logic for creating a non-streaming response
 func (h *NonStreamModelService) CreateNonStreamResponse(reqCtx *gin.Context, request *requesttypes.CreateResponseRequest, key string, conv *conversation.Conversation, responseEntity *Response, chatCompletionRequest *openai.ChatCompletionRequest) (responsetypes.Response, *common.Error) {
-	// Process with Jan inference client for non-streaming with timeout
-	janInferenceClient := janinference.NewJanInferenceClient(reqCtx)
+	// Process with chat completion client for non-streaming with timeout
 	ctx, cancel := context.WithTimeout(reqCtx.Request.Context(), DefaultTimeout)
 	defer cancel()
-	chatResponse, err := janInferenceClient.CreateChatCompletion(ctx, key, *chatCompletionRequest)
+	if h.ResponseModelService.chatClient == nil {
+		return responsetypes.Response{}, common.NewErrorWithMessage("chat client not configured", "bc82d69c-685b-4556-9d1f-2a4a80ae8ca4")
+	}
+	chatResponse, err := h.ResponseModelService.chatClient.CreateChatCompletion(ctx, key, *chatCompletionRequest)
 	if err != nil {
 		return responsetypes.Response{}, common.NewError(err, "bc82d69c-685b-4556-9d1f-2a4a80ae8ca4")
 	}

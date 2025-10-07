@@ -8,31 +8,41 @@ import (
 	"strings"
 	"time"
 
+	"menlo.ai/jan-api-gateway/app/domain/inference"
 	inferencemodel "menlo.ai/jan-api-gateway/app/domain/inference_model"
 	"menlo.ai/jan-api-gateway/app/infrastructure/cache"
 	"menlo.ai/jan-api-gateway/app/utils/functional"
-	janinference "menlo.ai/jan-api-gateway/app/utils/httpclients/jan_inference"
+	chatclient "menlo.ai/jan-api-gateway/app/utils/httpclients/chat"
 )
 
-type InferenceModelRegistry struct {
-	cache     *cache.RedisCacheService
-	janClient *janinference.JanInferenceClient
-}
-
 const (
-	// Consistent timeout for all Jan client operations
+	// Consistent timeout for all provider operations
 	janClientTimeout = 20 * time.Second
 	ModelsCacheTTL   = 10 * time.Minute
 )
 
 // sanitizeKeyPart encodes dynamic key parts to be Redis-key safe
-func sanitizeKeyPart(s string) string { return base64.RawURLEncoding.EncodeToString([]byte(s)) }
+func sanitizeKeyPart(s string) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(s))
+}
+
+type InferenceModelRegistry struct {
+	cache          *cache.RedisCacheService
+	provider       inference.InferenceProvider
+	serviceBaseURL string
+}
 
 // NewInferenceModelRegistry creates a new registry instance with cache service
-func NewInferenceModelRegistry(cacheService *cache.RedisCacheService, janClient *janinference.JanInferenceClient) *InferenceModelRegistry {
+func NewInferenceModelRegistry(cacheService *cache.RedisCacheService, provider inference.InferenceProvider, chatClient *chatclient.ChatCompletionClient) *InferenceModelRegistry {
+	baseURL := ""
+	if chatClient != nil {
+		baseURL = strings.TrimSpace(chatClient.BaseURL())
+	}
+
 	return &InferenceModelRegistry{
-		cache:     cacheService,
-		janClient: janClient,
+		cache:          cacheService,
+		provider:       provider,
+		serviceBaseURL: baseURL,
 	}
 }
 
@@ -47,8 +57,8 @@ func (r *InferenceModelRegistry) ListModels(ctx context.Context) []inferencemode
 		}
 	}
 
-	// Cache miss - rebuild from JanInferenceClient
-	models = r.rebuildModelsFromJanClient(ctx)
+	// Cache miss - rebuild from provider
+	models = r.rebuildModelsFromProvider(ctx)
 	return models
 }
 
@@ -158,7 +168,7 @@ func (r *InferenceModelRegistry) RemoveServiceModels(ctx context.Context, servic
 	existingJSON, _ := r.cache.Get(ctx, cache.ModelsCacheKey)
 	var existing []inferencemodel.Model
 	if existingJSON != "" {
-		json.Unmarshal([]byte(existingJSON), &existing)
+		_ = json.Unmarshal([]byte(existingJSON), &existing)
 	}
 
 	var filtered []inferencemodel.Model
@@ -199,11 +209,10 @@ func (r *InferenceModelRegistry) GetEndpointToModels(ctx context.Context, servic
 }
 
 func (r *InferenceModelRegistry) GetModelToEndpoints(ctx context.Context) map[string][]string {
-	// Try to get from cache first
 	modelToEndpointsJSON, err := r.cache.Get(ctx, cache.RegistryModelEndpointsKey)
 	if err != nil {
-		// Cache miss - rebuild from JanInferenceClient
-		r.rebuildModelsFromJanClient(ctx)
+		// Cache miss - rebuild from provider
+		r.rebuildModelsFromProvider(ctx)
 
 		// Try to get again after rebuild
 		modelToEndpointsJSON, err = r.cache.Get(ctx, cache.RegistryModelEndpointsKey)
@@ -220,23 +229,23 @@ func (r *InferenceModelRegistry) GetModelToEndpoints(ctx context.Context) map[st
 	return modelToEndpoints
 }
 
-// rebuildModelsFromJanClient fetches models from JanInferenceClient and rebuilds cache
-func (r *InferenceModelRegistry) rebuildModelsFromJanClient(ctx context.Context) []inferencemodel.Model {
-	if r.janClient == nil {
+// rebuildModelsFromProvider fetches models from the underlying inference provider and rebuilds cache
+func (r *InferenceModelRegistry) rebuildModelsFromProvider(ctx context.Context) []inferencemodel.Model {
+	if r.provider == nil || strings.TrimSpace(r.serviceBaseURL) == "" {
 		return []inferencemodel.Model{}
 	}
 
-	// Apply consistent timeout for Jan client operations
+	// Apply consistent timeout for provider operations
 	timeoutCtx, cancel := context.WithTimeout(ctx, janClientTimeout)
 	defer cancel()
 
-	janModelResp, err := r.janClient.GetModels(timeoutCtx)
+	modelResp, err := r.provider.GetModels(timeoutCtx)
 	if err != nil {
 		return []inferencemodel.Model{}
 	}
 
-	models := make([]inferencemodel.Model, 0)
-	for _, model := range janModelResp.Data {
+	models := make([]inferencemodel.Model, 0, len(modelResp.Data))
+	for _, model := range modelResp.Data {
 		models = append(models, inferencemodel.Model{
 			ID:      model.ID,
 			Object:  model.Object,
@@ -248,23 +257,23 @@ func (r *InferenceModelRegistry) rebuildModelsFromJanClient(ctx context.Context)
 	// Store models in cache
 	if len(models) > 0 {
 		modelsJSON, _ := json.Marshal(models)
-		r.cache.Set(ctx, cache.ModelsCacheKey, string(modelsJSON), ModelsCacheTTL)
+		_ = r.cache.Set(ctx, cache.ModelsCacheKey, string(modelsJSON), ModelsCacheTTL)
 
 		// Store service models mapping
-		serviceCacheKey := cache.RegistryEndpointModelsKey + ":" + sanitizeKeyPart(r.janClient.BaseURL)
+		serviceCacheKey := cache.RegistryEndpointModelsKey + ":" + sanitizeKeyPart(r.serviceBaseURL)
 		modelIDs := functional.Map(models, func(model inferencemodel.Model) string {
 			return model.ID
 		})
 		modelIDsJSON, _ := json.Marshal(modelIDs)
-		r.cache.Set(ctx, serviceCacheKey, string(modelIDsJSON), ModelsCacheTTL)
+		_ = r.cache.Set(ctx, serviceCacheKey, string(modelIDsJSON), ModelsCacheTTL)
 
 		// Build model-to-endpoints mapping
 		modelToEndpoints := make(map[string][]string)
 		for _, model := range models {
-			modelToEndpoints[model.ID] = append(modelToEndpoints[model.ID], r.janClient.BaseURL)
+			modelToEndpoints[model.ID] = append(modelToEndpoints[model.ID], r.serviceBaseURL)
 		}
 		modelToEndpointsJSON, _ := json.Marshal(modelToEndpoints)
-		r.cache.Set(ctx, cache.RegistryModelEndpointsKey, string(modelToEndpointsJSON), ModelsCacheTTL)
+		_ = r.cache.Set(ctx, cache.RegistryModelEndpointsKey, string(modelToEndpointsJSON), ModelsCacheTTL)
 	}
 
 	return models
@@ -286,11 +295,9 @@ func (r *InferenceModelRegistry) rebuildModelToEndpointsMapping(ctx context.Cont
 		return jsonErr
 	}
 
-	// For each model, find which services have it (this is not optimal but works)
 	for _, model := range allModels {
-		// You could optimize this by scanning service keys pattern
-		if r.janClient != nil {
-			modelToEndpoints[model.ID] = append(modelToEndpoints[model.ID], r.janClient.BaseURL)
+		if strings.TrimSpace(r.serviceBaseURL) != "" {
+			modelToEndpoints[model.ID] = append(modelToEndpoints[model.ID], r.serviceBaseURL)
 		}
 	}
 
@@ -301,31 +308,32 @@ func (r *InferenceModelRegistry) rebuildModelToEndpointsMapping(ctx context.Cont
 	return r.cache.Set(ctx, cache.RegistryModelEndpointsKey, string(modelToEndpointsJSON), ModelsCacheTTL)
 }
 
-// CheckInferenceModels checks and updates models from JanInferenceClient (moved from cron service)
+// CheckInferenceModels checks and updates models from the provider (moved from cron service)
 func (r *InferenceModelRegistry) CheckInferenceModels(ctx context.Context) {
-	if r.janClient == nil {
+	if r.provider == nil || strings.TrimSpace(r.serviceBaseURL) == "" {
 		return
 	}
 
-	// Apply consistent timeout for Jan client operations
+	// Apply consistent timeout for provider operations
 	timeoutCtx, cancel := context.WithTimeout(ctx, janClientTimeout)
 	defer cancel()
 
-	janModelResp, err := r.janClient.GetModels(timeoutCtx)
+	modelResp, err := r.provider.GetModels(timeoutCtx)
 	if err != nil {
-		_ = r.RemoveServiceModels(ctx, r.janClient.BaseURL) // Ignore error in cron context
-	} else {
-		models := make([]inferencemodel.Model, 0)
-		for _, model := range janModelResp.Data {
-			models = append(models, inferencemodel.Model{
-				ID:      model.ID,
-				Object:  model.Object,
-				Created: model.Created,
-				OwnedBy: model.OwnedBy,
-			})
-		}
-
-		// Clean and add new models (no merging or change checking)
-		_ = r.SetModels(ctx, r.janClient.BaseURL, models) // Ignore error in cron context
+		_ = r.RemoveServiceModels(ctx, r.serviceBaseURL) // Ignore error in cron context
+		return
 	}
+
+	models := make([]inferencemodel.Model, 0, len(modelResp.Data))
+	for _, model := range modelResp.Data {
+		models = append(models, inferencemodel.Model{
+			ID:      model.ID,
+			Object:  model.Object,
+			Created: model.Created,
+			OwnedBy: model.OwnedBy,
+		})
+	}
+
+	// Clean and add new models (no merging or change checking)
+	_ = r.SetModels(ctx, r.serviceBaseURL, models) // Ignore error in cron context
 }

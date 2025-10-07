@@ -17,7 +17,7 @@ import (
 	"menlo.ai/jan-api-gateway/app/domain/user"
 	requesttypes "menlo.ai/jan-api-gateway/app/interfaces/http/requests"
 	responsetypes "menlo.ai/jan-api-gateway/app/interfaces/http/responses"
-	janinference "menlo.ai/jan-api-gateway/app/utils/httpclients/jan_inference"
+	chatclient "menlo.ai/jan-api-gateway/app/utils/httpclients/chat"
 	"menlo.ai/jan-api-gateway/app/utils/ptr"
 )
 
@@ -40,6 +40,7 @@ type ResponseModelService struct {
 	streamModelService    *StreamModelService
 	nonStreamModelService *NonStreamModelService
 	modelRegistry         *inferencemodelregistry.InferenceModelRegistry
+	chatClient            *chatclient.ChatCompletionClient
 }
 
 // NewResponseModelService creates a new ResponseModelService instance
@@ -50,6 +51,7 @@ func NewResponseModelService(
 	conversationService *conversation.ConversationService,
 	responseService *ResponseService,
 	modelRegistry *inferencemodelregistry.InferenceModelRegistry,
+	chatClient *chatclient.ChatCompletionClient,
 ) *ResponseModelService {
 	responseModelService := &ResponseModelService{
 		UserService:         userService,
@@ -58,6 +60,7 @@ func NewResponseModelService(
 		conversationService: conversationService,
 		responseService:     responseService,
 		modelRegistry:       modelRegistry,
+		chatClient:          chatClient,
 	}
 
 	// Initialize specialized handlers
@@ -93,10 +96,13 @@ func (h *ResponseModelService) CreateResponse(ctx context.Context, userID uint, 
 	}
 
 	// Check if model endpoint exists
-	janInferenceClient := janinference.NewJanInferenceClient(ctx)
+	serviceBaseURL := ""
+	if h.chatClient != nil {
+		serviceBaseURL = h.chatClient.BaseURL()
+	}
 	endpointExists := false
 	for _, endpoint := range endpoints {
-		if endpoint == janInferenceClient.BaseURL {
+		if endpoint == serviceBaseURL {
 			endpointExists = true
 			break
 		}

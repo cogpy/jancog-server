@@ -6,65 +6,67 @@ import (
 
 	openai "github.com/sashabaranov/go-openai"
 	"menlo.ai/jan-api-gateway/app/domain/inference"
-	janinference "menlo.ai/jan-api-gateway/app/utils/httpclients/jan_inference"
+	httpclients "menlo.ai/jan-api-gateway/app/utils/httpclients"
+	chatclient "menlo.ai/jan-api-gateway/app/utils/httpclients/chat"
+	"menlo.ai/jan-api-gateway/config/environment_variables"
+	"resty.dev/v3"
 )
+
+func NewJanRestyClient() *resty.Client {
+	client := httpclients.NewClient("JanInferenceClient")
+	client.SetBaseURL(environment_variables.EnvironmentVariables.JAN_INFERENCE_MODEL_URL)
+	return client
+}
+
+func NewJanChatCompletionClient(restyClient *resty.Client) *chatclient.ChatCompletionClient {
+	return chatclient.NewChatCompletionClient(restyClient, "jan inference", environment_variables.EnvironmentVariables.JAN_INFERENCE_MODEL_URL)
+}
 
 // JanInferenceProvider implements InferenceProvider using Jan Inference service
 type JanInferenceProvider struct {
-	client *janinference.JanInferenceClient
+	chatClient  *chatclient.ChatCompletionClient
+	restyClient *resty.Client
 }
 
 // NewJanInferenceProvider creates a new JanInferenceProvider
-func NewJanInferenceProvider(client *janinference.JanInferenceClient) inference.InferenceProvider {
+func NewJanInferenceProvider(chatClient *chatclient.ChatCompletionClient, restyClient *resty.Client) inference.InferenceProvider {
 	return &JanInferenceProvider{
-		client: client,
+		chatClient:  chatClient,
+		restyClient: restyClient,
 	}
 }
 
 // CreateCompletion creates a non-streaming chat completion
 func (p *JanInferenceProvider) CreateCompletion(ctx context.Context, apiKey string, request openai.ChatCompletionRequest) (*openai.ChatCompletionResponse, error) {
-	return p.client.CreateChatCompletion(ctx, apiKey, request)
+	return p.chatClient.CreateChatCompletion(ctx, apiKey, request)
 }
 
 // CreateCompletionStream creates a streaming chat completion
 func (p *JanInferenceProvider) CreateCompletionStream(ctx context.Context, apiKey string, request openai.ChatCompletionRequest) (io.ReadCloser, error) {
-	// Create a pipe for streaming
-	reader, writer := io.Pipe()
-
-	go func() {
-		defer writer.Close()
-
-		// Use the existing streaming logic but write to pipe instead of HTTP response
-		req := janinference.JanInferenceRestyClient.R().SetBody(request)
-		resp, err := req.
-			SetContext(ctx).
-			SetDoNotParseResponse(true).
-			Post("/v1/chat/completions")
-		if err != nil {
-			writer.CloseWithError(err)
-			return
-		}
-		defer resp.RawResponse.Body.Close()
-
-		// Stream data to pipe
-		_, err = io.Copy(writer, resp.RawResponse.Body)
-		if err != nil {
-			writer.CloseWithError(err)
-		}
-	}()
-
-	return reader, nil
+	return p.chatClient.CreateChatCompletionStream(ctx, apiKey, request)
 }
 
 func (p *JanInferenceProvider) GetModels(ctx context.Context) (*inference.ModelsResponse, error) {
-	clientResponse, err := p.client.GetModels(ctx)
+	var modelsResponse struct {
+		Object string `json:"object"`
+		Data   []struct {
+			ID      string `json:"id"`
+			Object  string `json:"object"`
+			Created int    `json:"created"`
+			OwnedBy string `json:"owned_by"`
+		} `json:"data"`
+	}
+
+	_, err := p.restyClient.R().
+		SetContext(ctx).
+		SetResult(&modelsResponse).
+		Get("/v1/models")
 	if err != nil {
 		return nil, err
 	}
 
-	// Convert to domain models
-	models := make([]inference.Model, len(clientResponse.Data))
-	for i, model := range clientResponse.Data {
+	models := make([]inference.Model, len(modelsResponse.Data))
+	for i, model := range modelsResponse.Data {
 		models[i] = inference.Model{
 			ID:      model.ID,
 			Object:  model.Object,
@@ -73,11 +75,10 @@ func (p *JanInferenceProvider) GetModels(ctx context.Context) (*inference.Models
 		}
 	}
 
-	response := &inference.ModelsResponse{
-		Object: clientResponse.Object,
+	return &inference.ModelsResponse{
+		Object: modelsResponse.Object,
 		Data:   models,
-	}
-	return response, nil
+	}, nil
 }
 
 // ValidateModel checks if a model is supported
