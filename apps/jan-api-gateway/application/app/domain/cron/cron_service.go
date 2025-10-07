@@ -4,28 +4,35 @@ import (
 	"context"
 
 	"github.com/mileusna/crontab"
-	inference_model_registry "menlo.ai/jan-api-gateway/app/domain/inference_model_registry"
+	"menlo.ai/jan-api-gateway/app/utils/httpclients/chat"
+	"menlo.ai/jan-api-gateway/app/utils/logger"
 	"menlo.ai/jan-api-gateway/config/environment_variables"
 )
 
 type CronService struct {
-	InferenceModelRegistry *inference_model_registry.InferenceModelRegistry
+	modelClient *chat.ChatModelClient
 }
 
-func NewService(registry *inference_model_registry.InferenceModelRegistry) *CronService {
+func NewService(modelClient *chat.ChatModelClient) *CronService {
 	return &CronService{
-		InferenceModelRegistry: registry,
+		modelClient: modelClient,
 	}
 }
 
 func (cs *CronService) Start(ctx context.Context, ctab *crontab.Crontab) {
-	// Run initial check
-	cs.InferenceModelRegistry.CheckInferenceModels(ctx)
+	cs.refreshModels(ctx)
 
 	ctab.AddJob("* * * * *", func() {
-		cs.InferenceModelRegistry.CheckInferenceModels(ctx)
-
-		// Reload environment variables
+		cs.refreshModels(ctx)
 		environment_variables.EnvironmentVariables.LoadFromEnv()
 	})
+}
+
+func (cs *CronService) refreshModels(ctx context.Context) {
+	if cs.modelClient == nil {
+		return
+	}
+	if _, err := cs.modelClient.ListModels(ctx); err != nil {
+		logger.GetLogger().Warnf("cron: unable to refresh models: %v", err)
+	}
 }

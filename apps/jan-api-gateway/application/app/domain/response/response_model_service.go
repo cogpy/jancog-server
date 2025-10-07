@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -13,7 +14,6 @@ import (
 	"menlo.ai/jan-api-gateway/app/domain/auth"
 	"menlo.ai/jan-api-gateway/app/domain/common"
 	"menlo.ai/jan-api-gateway/app/domain/conversation"
-	inferencemodelregistry "menlo.ai/jan-api-gateway/app/domain/inference_model_registry"
 	"menlo.ai/jan-api-gateway/app/domain/user"
 	requesttypes "menlo.ai/jan-api-gateway/app/interfaces/http/requests"
 	responsetypes "menlo.ai/jan-api-gateway/app/interfaces/http/responses"
@@ -39,7 +39,7 @@ type ResponseModelService struct {
 	responseService       *ResponseService
 	streamModelService    *StreamModelService
 	nonStreamModelService *NonStreamModelService
-	modelRegistry         *inferencemodelregistry.InferenceModelRegistry
+	modelClient           *chatclient.ChatModelClient
 	chatClient            *chatclient.ChatCompletionClient
 }
 
@@ -50,7 +50,7 @@ func NewResponseModelService(
 	apikeyService *apikey.ApiKeyService,
 	conversationService *conversation.ConversationService,
 	responseService *ResponseService,
-	modelRegistry *inferencemodelregistry.InferenceModelRegistry,
+	modelClient *chatclient.ChatModelClient,
 	chatClient *chatclient.ChatCompletionClient,
 ) *ResponseModelService {
 	responseModelService := &ResponseModelService{
@@ -59,7 +59,7 @@ func NewResponseModelService(
 		apikeyService:       apikeyService,
 		conversationService: conversationService,
 		responseService:     responseService,
-		modelRegistry:       modelRegistry,
+		modelClient:         modelClient,
 		chatClient:          chatClient,
 	}
 
@@ -82,33 +82,35 @@ func (h *ResponseModelService) CreateResponse(ctx context.Context, userID uint, 
 	// TODO add the logic to get the API key for the user
 	key := ""
 
-	// Check if model exists in registry
-	mToE := h.modelRegistry.GetModelToEndpoints(ctx)
-	endpoints, ok := mToE[request.Model]
-	if !ok {
-		return nil, common.NewErrorWithMessage("Model validation error", "h8i9j0k1-l2m3-4567-hijk-890123456789")
-	}
-
 	// Convert response request to chat completion request using domain service
 	chatCompletionRequest := h.responseService.ConvertToChatCompletionRequest(request)
 	if chatCompletionRequest == nil {
 		return nil, common.NewErrorWithMessage("Input validation error", "i9j0k1l2-m3n4-5678-ijkl-901234567890")
 	}
 
-	// Check if model endpoint exists
-	serviceBaseURL := ""
-	if h.chatClient != nil {
-		serviceBaseURL = h.chatClient.BaseURL()
+	// Check if model exists
+	modelsResp, modelErr := h.modelClient.ListModels(ctx)
+	if modelErr != nil {
+		return nil, common.NewError(modelErr, "0199600c-3b65-7618-83ca-443a583d91d0")
 	}
-	endpointExists := false
-	for _, endpoint := range endpoints {
-		if endpoint == serviceBaseURL {
-			endpointExists = true
+
+	modelAvailable := false
+	for _, model := range modelsResp.Data {
+		if model.ID == request.Model {
+			modelAvailable = true
 			break
 		}
 	}
 
-	if !endpointExists {
+	if !modelAvailable {
+		return nil, common.NewErrorWithMessage("Model validation error", "h8i9j0k1-l2m3-4567-hijk-890123456789")
+	}
+
+	serviceBaseURL := ""
+	if h.chatClient != nil {
+		serviceBaseURL = h.chatClient.BaseURL()
+	}
+	if strings.TrimSpace(serviceBaseURL) == "" {
 		return nil, common.NewErrorWithMessage("Model validation error", "h8i9j0k1-l2m3-4567-hijk-890123456789")
 	}
 

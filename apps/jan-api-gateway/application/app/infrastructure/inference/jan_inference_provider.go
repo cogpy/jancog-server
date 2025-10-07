@@ -22,6 +22,10 @@ func NewJanChatCompletionClient(restyClient *resty.Client) *chatclient.ChatCompl
 	return chatclient.NewChatCompletionClient(restyClient, "jan inference", environment_variables.EnvironmentVariables.JAN_INFERENCE_MODEL_URL)
 }
 
+func NewJanChatModelClient(restyClient *resty.Client) *chatclient.ChatModelClient {
+	return chatclient.NewChatModelClient(restyClient, "jan inference models", environment_variables.EnvironmentVariables.JAN_INFERENCE_MODEL_URL)
+}
+
 // JanInferenceProvider implements InferenceProvider using Jan Inference service
 type JanInferenceProvider struct {
 	chatClient  *chatclient.ChatCompletionClient

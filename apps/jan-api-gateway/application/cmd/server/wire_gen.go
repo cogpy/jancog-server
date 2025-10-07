@@ -12,7 +12,6 @@ import (
 	"menlo.ai/jan-api-gateway/app/domain/auth"
 	"menlo.ai/jan-api-gateway/app/domain/conversation"
 	"menlo.ai/jan-api-gateway/app/domain/cron"
-	"menlo.ai/jan-api-gateway/app/domain/inference_model_registry"
 	"menlo.ai/jan-api-gateway/app/domain/invite"
 	"menlo.ai/jan-api-gateway/app/domain/mcp/serpermcp"
 	"menlo.ai/jan-api-gateway/app/domain/organization"
@@ -88,9 +87,8 @@ func CreateApplication() (*Application, error) {
 	conversationService := conversation.NewService(conversationRepository, itemRepository)
 	completionNonStreamHandler := conv.NewCompletionNonStreamHandler(chatCompletionClient, conversationService)
 	completionStreamHandler := conv.NewCompletionStreamHandler(chatCompletionClient, conversationService)
-	inferenceProvider := inference.NewJanInferenceProvider(chatCompletionClient, client)
-	inferenceModelRegistry := inferencemodelregistry.NewInferenceModelRegistry(redisCacheService, inferenceProvider, chatCompletionClient)
-	convCompletionAPI := conv.NewConvCompletionAPI(completionNonStreamHandler, completionStreamHandler, conversationService, authService, inferenceModelRegistry)
+	chatModelClient := inference.NewJanChatModelClient(client)
+	convCompletionAPI := conv.NewConvCompletionAPI(completionNonStreamHandler, completionStreamHandler, conversationService, authService, chatModelClient)
 	serperService := serpermcp.NewSerperService()
 	serperMCP := mcpimpl.NewSerperMCP(serperService)
 	convMCPAPI := conv.NewConvMCPAPI(authService, serperMCP)
@@ -99,19 +97,19 @@ func CreateApplication() (*Application, error) {
 	workspaceService := workspace.NewWorkspaceService(workspaceRepository, conversationRepository)
 	workspaceRoute := conv.NewWorkspaceRoute(authService, workspaceService)
 	conversationAPI := conversations.NewConversationAPI(conversationService, authService, workspaceService)
-	modelAPI := v1.NewModelAPI(inferenceModelRegistry)
+	modelAPI := v1.NewModelAPI(chatModelClient)
 	mcpapi := mcp.NewMCPAPI(serperMCP, authService)
 	googleAuthAPI := google.NewGoogleAuthAPI(userService, authService)
 	authRoute := auth2.NewAuthRoute(googleAuthAPI, userService, authService)
 	responseRepository := responserepo.NewResponseGormRepository(transactionDatabase)
 	responseService := response.NewResponseService(responseRepository, itemRepository, conversationService)
-	responseModelService := response.NewResponseModelService(userService, authService, apiKeyService, conversationService, responseService, inferenceModelRegistry, chatCompletionClient)
+	responseModelService := response.NewResponseModelService(userService, authService, apiKeyService, conversationService, responseService, chatModelClient, chatCompletionClient)
 	streamModelService := response.NewStreamModelService(responseModelService)
 	nonStreamModelService := response.NewNonStreamModelService(responseModelService)
 	responseRoute := responses.NewResponseRoute(responseModelService, authService, responseService, streamModelService, nonStreamModelService)
 	v1Route := v1.NewV1Route(organizationRoute, chatRoute, convChatRoute, workspaceRoute, conversationAPI, modelAPI, mcpapi, authRoute, responseRoute)
 	httpServer := http.NewHttpServer(v1Route)
-	cronService := cron.NewService(inferenceModelRegistry)
+	cronService := cron.NewService(chatModelClient)
 	application := &Application{
 		HttpServer:  httpServer,
 		CronService: cronService,

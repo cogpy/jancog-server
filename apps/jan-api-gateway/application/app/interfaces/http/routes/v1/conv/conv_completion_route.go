@@ -12,9 +12,9 @@ import (
 	"menlo.ai/jan-api-gateway/app/domain/auth"
 	"menlo.ai/jan-api-gateway/app/domain/common"
 	"menlo.ai/jan-api-gateway/app/domain/conversation"
-	inferencemodelregistry "menlo.ai/jan-api-gateway/app/domain/inference_model_registry"
 	userdomain "menlo.ai/jan-api-gateway/app/domain/user"
 	"menlo.ai/jan-api-gateway/app/interfaces/http/responses"
+	chatclient "menlo.ai/jan-api-gateway/app/utils/httpclients/chat"
 	"menlo.ai/jan-api-gateway/app/utils/idgen"
 	"menlo.ai/jan-api-gateway/app/utils/logger"
 )
@@ -29,16 +29,16 @@ type ConvCompletionAPI struct {
 	completionStreamHandler    *CompletionStreamHandler
 	conversationService        *conversation.ConversationService
 	authService                *auth.AuthService
-	registry                   *inferencemodelregistry.InferenceModelRegistry
+	modelClient                *chatclient.ChatModelClient
 }
 
-func NewConvCompletionAPI(completionNonStreamHandler *CompletionNonStreamHandler, completionStreamHandler *CompletionStreamHandler, conversationService *conversation.ConversationService, authService *auth.AuthService, registry *inferencemodelregistry.InferenceModelRegistry) *ConvCompletionAPI {
+func NewConvCompletionAPI(completionNonStreamHandler *CompletionNonStreamHandler, completionStreamHandler *CompletionStreamHandler, conversationService *conversation.ConversationService, authService *auth.AuthService, modelClient *chatclient.ChatModelClient) *ConvCompletionAPI {
 	return &ConvCompletionAPI{
 		completionNonStreamHandler: completionNonStreamHandler,
 		completionStreamHandler:    completionStreamHandler,
 		conversationService:        conversationService,
 		authService:                authService,
-		registry:                   registry,
+		modelClient:                modelClient,
 	}
 }
 
@@ -206,11 +206,18 @@ func (api *ConvCompletionAPI) PostCompletion(reqCtx *gin.Context) {
 // @Router /v1/conv/models [get]
 func (api *ConvCompletionAPI) GetModels(reqCtx *gin.Context) {
 	ctx := reqCtx.Request.Context()
-	models := api.registry.ListModels(ctx)
+	modelsResp, err := api.modelClient.ListModels(ctx)
+	if err != nil {
+		reqCtx.AbortWithStatusJSON(http.StatusBadGateway, responses.ErrorResponse{
+			Code:          "0199600b-86d3-7339-8402-8ef1c7840475",
+			ErrorInstance: err,
+		})
+		return
+	}
 
 	// Convert to response format
-	responseData := make([]Model, len(models))
-	for i, model := range models {
+	responseData := make([]Model, len(modelsResp.Data))
+	for i, model := range modelsResp.Data {
 		responseData[i] = Model{
 			ID:      model.ID,
 			Object:  model.Object,

@@ -4,18 +4,18 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	inferencemodel "menlo.ai/jan-api-gateway/app/domain/inference_model"
-	inferencemodelregistry "menlo.ai/jan-api-gateway/app/domain/inference_model_registry"
+	"menlo.ai/jan-api-gateway/app/interfaces/http/responses"
 	"menlo.ai/jan-api-gateway/app/utils/functional"
+	chatclient "menlo.ai/jan-api-gateway/app/utils/httpclients/chat"
 )
 
 type ModelAPI struct {
-	registry *inferencemodelregistry.InferenceModelRegistry
+	modelClient *chatclient.ChatModelClient
 }
 
-func NewModelAPI(registry *inferencemodelregistry.InferenceModelRegistry) *ModelAPI {
+func NewModelAPI(modelClient *chatclient.ChatModelClient) *ModelAPI {
 	return &ModelAPI{
-		registry: registry,
+		modelClient: modelClient,
 	}
 }
 
@@ -34,11 +34,18 @@ func (modelAPI *ModelAPI) RegisterRouter(router *gin.RouterGroup) {
 // @Router /v1/models [get]
 func (modelAPI *ModelAPI) GetModels(reqCtx *gin.Context) {
 	ctx := reqCtx.Request.Context()
-	models := modelAPI.registry.ListModels(ctx)
+	modelsResp, err := modelAPI.modelClient.ListModels(ctx)
+	if err != nil {
+		reqCtx.AbortWithStatusJSON(http.StatusBadGateway, responses.ErrorResponse{
+			Code:          "0199600b-86d3-7339-8402-8ef1c7840475",
+			ErrorInstance: err,
+		})
+		return
+	}
 
 	reqCtx.JSON(http.StatusOK, ModelsResponse{
 		Object: "list",
-		Data: functional.Map(models, func(model inferencemodel.Model) Model {
+		Data: functional.Map(modelsResp.Data, func(model chatclient.Model) Model {
 			return Model{
 				ID:      model.ID,
 				Object:  model.Object,
