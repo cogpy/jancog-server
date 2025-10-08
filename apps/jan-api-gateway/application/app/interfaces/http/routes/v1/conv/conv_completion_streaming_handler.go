@@ -13,6 +13,8 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 	"menlo.ai/jan-api-gateway/app/domain/common"
 	"menlo.ai/jan-api-gateway/app/domain/conversation"
+	domainmodel "menlo.ai/jan-api-gateway/app/domain/model"
+	"menlo.ai/jan-api-gateway/app/infrastructure/inference"
 	chatclient "menlo.ai/jan-api-gateway/app/utils/httpclients/chat"
 	"menlo.ai/jan-api-gateway/app/utils/logger"
 )
@@ -28,14 +30,14 @@ const (
 
 // CompletionStreamHandler handles streaming chat completions
 type CompletionStreamHandler struct {
-	chatClient          *chatclient.ChatCompletionClient
+	inferenceProvider   *inference.InferenceProvider
 	conversationService *conversation.ConversationService
 }
 
 // NewCompletionStreamHandler creates a new CompletionStreamHandler
-func NewCompletionStreamHandler(chatClient *chatclient.ChatCompletionClient, conversationService *conversation.ConversationService) *CompletionStreamHandler {
+func NewCompletionStreamHandler(inferenceProvider *inference.InferenceProvider, conversationService *conversation.ConversationService) *CompletionStreamHandler {
 	return &CompletionStreamHandler{
-		chatClient:          chatClient,
+		inferenceProvider:   inferenceProvider,
 		conversationService: conversationService,
 	}
 }
@@ -60,13 +62,19 @@ type ToolCallAccumulator struct {
 }
 
 // StreamCompletionAndAccumulateResponse streams SSE events to client and accumulates a complete response for internal processing
-func (s *CompletionStreamHandler) StreamCompletionAndAccumulateResponse(reqCtx *gin.Context, apiKey string, request openai.ChatCompletionRequest, conv *conversation.Conversation, conversationCreated bool, askItemID string, completionItemID string) (*ExtendedCompletionResponse, *common.Error) {
+func (s *CompletionStreamHandler) StreamCompletionAndAccumulateResponse(reqCtx *gin.Context, provider *domainmodel.Provider, apiKey string, request openai.ChatCompletionRequest, conv *conversation.Conversation, conversationCreated bool, askItemID string, completionItemID string) (*ExtendedCompletionResponse, *common.Error) {
 	// Add timeout context
 	ctx, cancel := context.WithTimeout(reqCtx.Request.Context(), RequestTimeout)
 	defer cancel()
 
+	// Get chat client for provider
+	chatClient, err := s.inferenceProvider.GetChatCompletionClient(provider)
+	if err != nil {
+		return nil, common.NewError(err, "bc82d69c-685b-4556-9d1f-2a4a80ae8ca3")
+	}
+
 	// Set up SSE headers using shared chat client helper
-	s.chatClient.SetupSSEHeaders(reqCtx)
+	chatClient.SetupSSEHeaders(reqCtx)
 
 	// Send conversation metadata event first
 	if conv != nil {
@@ -83,7 +91,7 @@ func (s *CompletionStreamHandler) StreamCompletionAndAccumulateResponse(reqCtx *
 	wg.Add(1)
 
 	// Start streaming in a goroutine
-	go s.streamResponseToChannel(ctx, apiKey, request, dataChan, errChan, &wg)
+	go s.streamResponseToChannel(ctx, chatClient, apiKey, request, dataChan, errChan, &wg)
 
 	// Accumulators for different types of content
 	var fullContent string
@@ -167,11 +175,11 @@ func (s *CompletionStreamHandler) StreamCompletionAndAccumulateResponse(reqCtx *
 }
 
 // streamResponseToChannel streams the response from inference provider to channels
-func (s *CompletionStreamHandler) streamResponseToChannel(ctx context.Context, apiKey string, request openai.ChatCompletionRequest, dataChan chan<- string, errChan chan<- error, wg *sync.WaitGroup) {
+func (s *CompletionStreamHandler) streamResponseToChannel(ctx context.Context, chatClient *chatclient.ChatCompletionClient, apiKey string, request openai.ChatCompletionRequest, dataChan chan<- string, errChan chan<- error, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	// Get streaming reader from inference provider
-	reader, err := s.chatClient.CreateChatCompletionStream(ctx, apiKey, request)
+	reader, err := chatClient.CreateChatCompletionStream(ctx, apiKey, request)
 	if err != nil {
 		errChan <- err
 		return

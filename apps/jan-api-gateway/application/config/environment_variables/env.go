@@ -13,6 +13,7 @@ import (
 
 type EnvironmentVariable struct {
 	JAN_INFERENCE_MODEL_URL     string
+	JAN_INFERENCE_SETUP         bool
 	SERPER_API_KEY              string
 	JWT_SECRET                  []byte
 	OAUTH2_GOOGLE_CLIENT_ID     string

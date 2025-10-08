@@ -43,7 +43,7 @@ import (
 	"menlo.ai/jan-api-gateway/app/interfaces/http/routes/v1/conversations"
 	"menlo.ai/jan-api-gateway/app/interfaces/http/routes/v1/mcp"
 	"menlo.ai/jan-api-gateway/app/interfaces/http/routes/v1/mcp/mcp_impl"
-	modelroute "menlo.ai/jan-api-gateway/app/interfaces/http/routes/v1/model"
+	"menlo.ai/jan-api-gateway/app/interfaces/http/routes/v1/model"
 	organization2 "menlo.ai/jan-api-gateway/app/interfaces/http/routes/v1/organization"
 	"menlo.ai/jan-api-gateway/app/interfaces/http/routes/v1/organization/invites"
 	"menlo.ai/jan-api-gateway/app/interfaces/http/routes/v1/organization/projects"
@@ -73,30 +73,28 @@ func CreateApplication() (*Application, error) {
 	apiKeyService := apikey.NewService(apiKeyRepository, organizationService)
 	projectRepository := projectrepo.NewProjectGormRepository(transactionDatabase)
 	projectService := project.NewService(projectRepository)
-	providerRepository := modelrepo.NewProviderGormRepository(transactionDatabase)
-	providerModelRepository := modelrepo.NewProviderModelGormRepository(transactionDatabase)
-	modelCatalogRepository := modelrepo.NewModelCatalogGormRepository(transactionDatabase)
-	providerRegistryService := model.NewProviderRegistryService(providerRepository, providerModelRepository, modelCatalogRepository)
 	inviteRepository := inviterepo.NewInviteGormRepository(transactionDatabase)
 	inviteService := invite.NewInviteService(inviteRepository)
 	authService := auth.NewAuthService(userService, apiKeyService, organizationService, projectService, inviteService)
 	adminApiKeyAPI := organization2.NewAdminApiKeyAPI(organizationService, authService, apiKeyService, userService)
 	projectApiKeyRoute := apikeys.NewProjectApiKeyRoute(organizationService, projectService, apiKeyService, userService)
-	projectsRoute := projects.NewProjectsRoute(projectService, apiKeyService, authService, projectApiKeyRoute, providerRegistryService)
+	providerRepository := modelrepo.NewProviderGormRepository(transactionDatabase)
+	providerModelRepository := modelrepo.NewProviderModelGormRepository(transactionDatabase)
+	modelCatalogRepository := modelrepo.NewModelCatalogGormRepository(transactionDatabase)
+	providerRegistryService := model.NewProviderRegistryService(providerRepository, providerModelRepository, modelCatalogRepository)
+	inferenceProvider := inference.NewInferenceProvider()
+	projectsRoute := projects.NewProjectsRoute(projectService, apiKeyService, authService, projectApiKeyRoute, providerRegistryService, inferenceProvider)
 	invitesRoute := invites.NewInvitesRoute(inviteService, projectService, organizationService, authService)
-	modelProviderRoute := organization2.NewModelProviderRoute(authService, providerRegistryService)
+	modelProviderRoute := organization2.NewModelProviderRoute(authService, providerRegistryService, inferenceProvider)
 	organizationRoute := organization2.NewOrganizationRoute(adminApiKeyAPI, projectsRoute, invitesRoute, modelProviderRoute, authService)
-	client := inference.NewJanRestyClient()
-	chatCompletionClient := inference.NewJanChatCompletionClient(client)
-	completionAPI := chat.NewCompletionAPI(chatCompletionClient, authService)
+	completionAPI := chat.NewCompletionAPI(inferenceProvider, authService, projectService, providerRegistryService)
 	chatRoute := chat.NewChatRoute(completionAPI)
 	conversationRepository := conversationrepo.NewConversationGormRepository(transactionDatabase)
 	itemRepository := itemrepo.NewItemGormRepository(transactionDatabase)
 	conversationService := conversation.NewService(conversationRepository, itemRepository)
-	completionNonStreamHandler := conv.NewCompletionNonStreamHandler(chatCompletionClient, conversationService)
-	completionStreamHandler := conv.NewCompletionStreamHandler(chatCompletionClient, conversationService)
-	chatModelClient := inference.NewJanChatModelClient(client)
-	convCompletionAPI := conv.NewConvCompletionAPI(completionNonStreamHandler, completionStreamHandler, conversationService, authService, projectService, providerRegistryService, chatModelClient)
+	completionNonStreamHandler := conv.NewCompletionNonStreamHandler(inferenceProvider, conversationService)
+	completionStreamHandler := conv.NewCompletionStreamHandler(inferenceProvider, conversationService)
+	convCompletionAPI := conv.NewConvCompletionAPI(completionNonStreamHandler, completionStreamHandler, conversationService, authService, projectService, providerRegistryService, inferenceProvider)
 	serperService := serpermcp.NewSerperService()
 	serperMCP := mcpimpl.NewSerperMCP(serperService)
 	convMCPAPI := conv.NewConvMCPAPI(authService, serperMCP)
@@ -105,14 +103,14 @@ func CreateApplication() (*Application, error) {
 	workspaceService := workspace.NewWorkspaceService(workspaceRepository, conversationRepository)
 	workspaceRoute := conv.NewWorkspaceRoute(authService, workspaceService)
 	conversationAPI := conversations.NewConversationAPI(conversationService, authService, workspaceService)
-	modelAPI := modelroute.NewModelAPI(chatModelClient, authService, projectService, providerRegistryService)
+	modelAPI := modelroute.NewModelAPI(inferenceProvider, authService, projectService, providerRegistryService)
 	providersAPI := modelroute.NewProvidersAPI(authService, projectService, providerRegistryService)
 	mcpapi := mcp.NewMCPAPI(serperMCP, authService)
 	googleAuthAPI := google.NewGoogleAuthAPI(userService, authService)
 	authRoute := auth2.NewAuthRoute(googleAuthAPI, userService, authService)
 	responseRepository := responserepo.NewResponseGormRepository(transactionDatabase)
 	responseService := response.NewResponseService(responseRepository, itemRepository, conversationService)
-	responseModelService := response.NewResponseModelService(userService, authService, apiKeyService, conversationService, responseService, chatModelClient, chatCompletionClient)
+	responseModelService := response.NewResponseModelService(userService, authService, apiKeyService, conversationService, responseService, inferenceProvider, providerRegistryService)
 	streamModelService := response.NewStreamModelService(responseModelService)
 	nonStreamModelService := response.NewNonStreamModelService(responseModelService)
 	responseRoute := responses.NewResponseRoute(responseModelService, authService, responseService, streamModelService, nonStreamModelService)
@@ -141,8 +139,15 @@ func CreateDataInitializer() (*DataInitializer, error) {
 	inviteRepository := inviterepo.NewInviteGormRepository(transactionDatabase)
 	inviteService := invite.NewInviteService(inviteRepository)
 	authService := auth.NewAuthService(userService, apiKeyService, organizationService, projectService, inviteService)
+	providerRepository := modelrepo.NewProviderGormRepository(transactionDatabase)
+	providerModelRepository := modelrepo.NewProviderModelGormRepository(transactionDatabase)
+	modelCatalogRepository := modelrepo.NewModelCatalogGormRepository(transactionDatabase)
+	providerRegistryService := model.NewProviderRegistryService(providerRepository, providerModelRepository, modelCatalogRepository)
+	inferenceProvider := inference.NewInferenceProvider()
 	dataInitializer := &DataInitializer{
-		authService: authService,
+		authService:       authService,
+		providerRegistry:  providerRegistryService,
+		inferenceProvider: inferenceProvider,
 	}
 	return dataInitializer, nil
 }

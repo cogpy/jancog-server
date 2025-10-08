@@ -7,8 +7,6 @@ import (
 )
 
 var InfrastructureProvider = wire.NewSet(
-	inference.NewJanRestyClient,
-	inference.NewJanChatCompletionClient,
-	inference.NewJanChatModelClient,
+	inference.NewInferenceProvider,
 	cache.NewRedisCacheService,
 )

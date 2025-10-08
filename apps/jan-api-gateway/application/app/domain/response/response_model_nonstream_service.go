@@ -9,6 +9,7 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 	"menlo.ai/jan-api-gateway/app/domain/common"
 	"menlo.ai/jan-api-gateway/app/domain/conversation"
+	domainmodel "menlo.ai/jan-api-gateway/app/domain/model"
 	requesttypes "menlo.ai/jan-api-gateway/app/interfaces/http/requests"
 	responsetypes "menlo.ai/jan-api-gateway/app/interfaces/http/responses"
 	"menlo.ai/jan-api-gateway/app/utils/logger"
@@ -33,9 +34,9 @@ func NewNonStreamModelService(responseModelService *ResponseModelService) *NonSt
 }
 
 // CreateNonStreamResponse handles the business logic for creating a non-streaming response
-func (h *NonStreamModelService) CreateNonStreamResponseHandler(reqCtx *gin.Context, request *requesttypes.CreateResponseRequest, key string, conv *conversation.Conversation, responseEntity *Response, chatCompletionRequest *openai.ChatCompletionRequest) {
+func (h *NonStreamModelService) CreateNonStreamResponseHandler(reqCtx *gin.Context, request *requesttypes.CreateResponseRequest, provider *domainmodel.Provider, key string, conv *conversation.Conversation, responseEntity *Response, chatCompletionRequest *openai.ChatCompletionRequest) {
 
-	result, err := h.CreateNonStreamResponse(reqCtx, request, key, conv, responseEntity, chatCompletionRequest)
+	result, err := h.CreateNonStreamResponse(reqCtx, request, provider, key, conv, responseEntity, chatCompletionRequest)
 	if err != nil {
 		reqCtx.AbortWithStatusJSON(
 			http.StatusBadRequest,
@@ -50,14 +51,18 @@ func (h *NonStreamModelService) CreateNonStreamResponseHandler(reqCtx *gin.Conte
 }
 
 // doCreateNonStreamResponse performs the business logic for creating a non-streaming response
-func (h *NonStreamModelService) CreateNonStreamResponse(reqCtx *gin.Context, request *requesttypes.CreateResponseRequest, key string, conv *conversation.Conversation, responseEntity *Response, chatCompletionRequest *openai.ChatCompletionRequest) (responsetypes.Response, *common.Error) {
+func (h *NonStreamModelService) CreateNonStreamResponse(reqCtx *gin.Context, request *requesttypes.CreateResponseRequest, provider *domainmodel.Provider, key string, conv *conversation.Conversation, responseEntity *Response, chatCompletionRequest *openai.ChatCompletionRequest) (responsetypes.Response, *common.Error) {
 	// Process with chat completion client for non-streaming with timeout
 	ctx, cancel := context.WithTimeout(reqCtx.Request.Context(), DefaultTimeout)
 	defer cancel()
-	if h.ResponseModelService.chatClient == nil {
-		return responsetypes.Response{}, common.NewErrorWithMessage("chat client not configured", "bc82d69c-685b-4556-9d1f-2a4a80ae8ca4")
+
+	// Create chat client from provider
+	chatClient, clientErr := h.ResponseModelService.inferenceProvider.GetChatCompletionClient(provider)
+	if clientErr != nil {
+		return responsetypes.Response{}, common.NewError(clientErr, "bc82d69c-685b-4556-9d1f-2a4a80ae8ca3")
 	}
-	chatResponse, err := h.ResponseModelService.chatClient.CreateChatCompletion(ctx, key, *chatCompletionRequest)
+
+	chatResponse, err := chatClient.CreateChatCompletion(ctx, key, *chatCompletionRequest)
 	if err != nil {
 		return responsetypes.Response{}, common.NewError(err, "bc82d69c-685b-4556-9d1f-2a4a80ae8ca4")
 	}

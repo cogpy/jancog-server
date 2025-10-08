@@ -15,7 +15,6 @@ import (
 	"menlo.ai/jan-api-gateway/app/domain/organization"
 	"menlo.ai/jan-api-gateway/app/domain/query"
 	"menlo.ai/jan-api-gateway/app/utils/crypto"
-	"menlo.ai/jan-api-gateway/app/utils/httpclients"
 	chatclient "menlo.ai/jan-api-gateway/app/utils/httpclients/chat"
 	"menlo.ai/jan-api-gateway/app/utils/idgen"
 	"menlo.ai/jan-api-gateway/app/utils/ptr"
@@ -158,9 +157,17 @@ func (s *ProviderRegistryService) RegisterProvider(ctx context.Context, input Re
 		return nil, common.NewError(err, "5c1db208-0f8c-4c2b-90d9-5112e9cf2a47")
 	}
 
-	models, err := s.fetchModels(ctx, provider.BaseURL, plainAPIKey)
-	if err != nil {
-		return nil, common.NewError(err, "cbe9fb03-a434-4d57-8a59-7b1e6830f9e5")
+	return &ProviderRegistrationResult{
+		Provider: provider,
+		Models:   []ProviderModelSyncResult{},
+	}, nil
+}
+
+// SyncProviderModels updates provider models and catalog entries using the supplied list.
+// It also updates the provider's last synced timestamp.
+func (s *ProviderRegistryService) SyncProviderModels(ctx context.Context, provider *Provider, models []chatclient.Model) ([]ProviderModelSyncResult, *common.Error) {
+	if provider == nil {
+		return nil, common.NewErrorWithMessage("provider is required", "8c278cf1-43a9-4f45-bf3c-28769b12f3fd")
 	}
 
 	syncResults, syncErr := s.syncModels(ctx, provider, models)
@@ -174,26 +181,7 @@ func (s *ProviderRegistryService) RegisterProvider(ctx context.Context, input Re
 		return nil, common.NewError(err, "7fce47f4-67dd-47a3-93d6-3569b9d6d4f3")
 	}
 
-	return &ProviderRegistrationResult{
-		Provider: provider,
-		Models:   syncResults,
-	}, nil
-}
-
-func (s *ProviderRegistryService) fetchModels(ctx context.Context, baseURL, apiKey string) ([]chatclient.Model, error) {
-	client := httpclients.NewClient("ProviderModelDiscovery")
-	client.SetBaseURL(normalizeURL(baseURL))
-	if strings.TrimSpace(apiKey) != "" {
-		client.SetHeader("Authorization", fmt.Sprintf("Bearer %s", strings.TrimSpace(apiKey)))
-	}
-	client.SetHeader("Content-Type", "application/json")
-
-	modelClient := chatclient.NewChatModelClient(client, "provider_discovery", baseURL)
-	resp, err := modelClient.ListModels(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return resp.Data, nil
+	return syncResults, nil
 }
 
 func (s *ProviderRegistryService) syncModels(ctx context.Context, provider *Provider, models []chatclient.Model) ([]ProviderModelSyncResult, *common.Error) {
@@ -350,6 +338,8 @@ func (s *ProviderRegistryService) UpdateProvider(ctx context.Context, provider *
 	return provider, nil
 }
 
+// ListAccessibleProviders returns providers accessible to the caller ordered by priority:
+// project-scoped providers first, followed by organization-level
 func (s *ProviderRegistryService) ListAccessibleProviders(ctx context.Context, organizationID uint, projectIDs []uint) ([]*Provider, error) {
 	result := []*Provider{}
 	seen := map[uint]struct{}{}
@@ -365,25 +355,7 @@ func (s *ProviderRegistryService) ListAccessibleProviders(ctx context.Context, o
 			result = append(result, provider)
 		}
 	}
-	if organization.DEFAULT_ORGANIZATION != nil {
-		globalProviders, err := s.providerRepo.FindByFilter(ctx, ProviderFilter{
-			OrganizationID: ptr.ToUint(organization.DEFAULT_ORGANIZATION.ID),
-			WithoutProject: ptr.ToBool(true),
-		}, nil)
-		if err != nil {
-			return nil, err
-		}
-		appendUnique(globalProviders)
-	}
 	orgID := ptr.ToUint(organizationID)
-	orgProviders, err := s.providerRepo.FindByFilter(ctx, ProviderFilter{
-		OrganizationID: orgID,
-		WithoutProject: ptr.ToBool(true),
-	}, nil)
-	if err != nil {
-		return nil, err
-	}
-	appendUnique(orgProviders)
 	if len(projectIDs) > 0 {
 		ids := projectIDs
 		projectProviders, err := s.providerRepo.FindByFilter(ctx, ProviderFilter{
@@ -394,6 +366,24 @@ func (s *ProviderRegistryService) ListAccessibleProviders(ctx context.Context, o
 			return nil, err
 		}
 		appendUnique(projectProviders)
+	}
+	orgProviders, err := s.providerRepo.FindByFilter(ctx, ProviderFilter{
+		OrganizationID: orgID,
+		WithoutProject: ptr.ToBool(true),
+	}, nil)
+	if err != nil {
+		return nil, err
+	}
+	appendUnique(orgProviders)
+	if organization.DEFAULT_ORGANIZATION != nil {
+		globalProviders, err := s.providerRepo.FindByFilter(ctx, ProviderFilter{
+			OrganizationID: ptr.ToUint(organization.DEFAULT_ORGANIZATION.ID),
+			WithoutProject: ptr.ToBool(true),
+		}, nil)
+		if err != nil {
+			return nil, err
+		}
+		appendUnique(globalProviders)
 	}
 	return result, nil
 }
@@ -408,6 +398,92 @@ func (s *ProviderRegistryService) ListProviderModels(ctx context.Context, provid
 		ProviderIDs: &ids,
 		Active:      active,
 	}, nil)
+}
+
+// GetProviderForModel finds the provider associated with a given model key.
+// It searches through accessible providers in order: Project -> Organization -> Global.
+// Returns the first provider that has the model, or an error if no provider is found.
+func (s *ProviderRegistryService) GetProviderForModel(ctx context.Context, modelKey string, organizationID uint, projectIDs []uint) (*Provider, error) {
+	if strings.TrimSpace(modelKey) == "" {
+		return nil, errors.New("model key is required")
+	}
+
+	// Get all accessible providers (ordered: project -> organization -> global)
+	providers, err := s.ListAccessibleProviders(ctx, organizationID, projectIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(providers) == 0 {
+		return nil, errors.New("no accessible providers found")
+	}
+
+	// Collect all provider IDs
+	providerIDs := make([]uint, 0, len(providers))
+	for _, provider := range providers {
+		if provider == nil {
+			continue
+		}
+		providerIDs = append(providerIDs, provider.ID)
+	}
+
+	if len(providerIDs) == 0 {
+		return nil, errors.New("no accessible providers found")
+	}
+
+	// Find provider models matching the model key
+	key := modelKey
+	active := ptr.ToBool(true)
+	providerModels, err := s.providerModelRepo.FindByFilter(ctx, ProviderModelFilter{
+		ProviderIDs: &providerIDs,
+		ModelKey:    &key,
+		Active:      active,
+	}, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(providerModels) == 0 {
+		return nil, fmt.Errorf("model '%s' not found in accessible providers", modelKey)
+	}
+
+	hasModel := make(map[uint]struct{}, len(providerModels))
+	for _, pm := range providerModels {
+		hasModel[pm.ProviderID] = struct{}{}
+	}
+
+	for _, provider := range providers {
+		if provider == nil {
+			continue
+		}
+		if _, ok := hasModel[provider.ID]; ok {
+			return provider, nil
+		}
+	}
+
+	return nil, fmt.Errorf("no valid provider found for model '%s'", modelKey)
+}
+
+// DefaultProvider returns the built-in Jan provider used as a fallback when no custom provider is available.
+func (s *ProviderRegistryService) DefaultProvider() *Provider {
+	return &Provider{
+		DisplayName:     "Jan",
+		Kind:            ProviderJan,
+		BaseURL:         environment_variables.EnvironmentVariables.JAN_INFERENCE_MODEL_URL,
+		EncryptedAPIKey: "",
+		Active:          true,
+	}
+}
+
+// GetProviderForModelOrDefault resolves the provider for a model and falls back to the default provider.
+// The returned boolean indicates whether the default provider was used (true) or a registry provider was found (false).
+func (s *ProviderRegistryService) GetProviderForModelOrDefault(ctx context.Context, modelKey string, organizationID uint, projectIDs []uint) (*Provider, bool, error) {
+	provider, err := s.GetProviderForModel(ctx, modelKey, organizationID, projectIDs)
+	if err == nil {
+		return provider, false, nil
+	}
+
+	return s.DefaultProvider(), true, err
 }
 
 func (s *ProviderRegistryService) generateUniqueSlug(ctx context.Context, base string) (string, error) {

@@ -15,9 +15,9 @@ import (
 	domainmodel "menlo.ai/jan-api-gateway/app/domain/model"
 	"menlo.ai/jan-api-gateway/app/domain/project"
 	userdomain "menlo.ai/jan-api-gateway/app/domain/user"
+	"menlo.ai/jan-api-gateway/app/infrastructure/inference"
 	"menlo.ai/jan-api-gateway/app/interfaces/http/responses"
 	modelroute "menlo.ai/jan-api-gateway/app/interfaces/http/routes/v1/model"
-	chatclient "menlo.ai/jan-api-gateway/app/utils/httpclients/chat"
 	"menlo.ai/jan-api-gateway/app/utils/idgen"
 	"menlo.ai/jan-api-gateway/app/utils/logger"
 )
@@ -34,7 +34,7 @@ type ConvCompletionAPI struct {
 	authService                *auth.AuthService
 	projectService             *project.ProjectService
 	providerRegistry           *domainmodel.ProviderRegistryService
-	modelClient                *chatclient.ChatModelClient
+	inferenceProvider          *inference.InferenceProvider
 }
 
 func NewConvCompletionAPI(
@@ -44,7 +44,7 @@ func NewConvCompletionAPI(
 	authService *auth.AuthService,
 	projectService *project.ProjectService,
 	providerRegistry *domainmodel.ProviderRegistryService,
-	modelClient *chatclient.ChatModelClient,
+	inferenceProvider *inference.InferenceProvider,
 ) *ConvCompletionAPI {
 	return &ConvCompletionAPI{
 		completionNonStreamHandler: completionNonStreamHandler,
@@ -53,8 +53,21 @@ func NewConvCompletionAPI(
 		authService:                authService,
 		projectService:             projectService,
 		providerRegistry:           providerRegistry,
-		modelClient:                modelClient,
+		inferenceProvider:          inferenceProvider,
 	}
+}
+
+// getProviderForModel resolves the provider for a given model key based on user's access
+func (api *ConvCompletionAPI) getProviderForModel(reqCtx *gin.Context, modelKey string, orgID uint, projectIDs []uint) (*domainmodel.Provider, *common.Error) {
+	ctx := reqCtx.Request.Context()
+
+	// Find provider for the model (priority: Project → Organization → Global)
+	provider, usedDefault, err := api.providerRegistry.GetProviderForModelOrDefault(ctx, modelKey, orgID, projectIDs)
+	if err != nil && usedDefault {
+		logger.GetLogger().Errorf("Failed to find provider for model '%s': %v, falling back to default provider", modelKey, err)
+	}
+
+	return provider, nil
 }
 
 func (completionAPI *ConvCompletionAPI) RegisterRouter(router *gin.RouterGroup) {
@@ -161,6 +174,30 @@ func (api *ConvCompletionAPI) PostCompletion(reqCtx *gin.Context) {
 	}
 	// TODO: Implement admin API key check
 
+	// Resolve user's accessible providers to determine organization and project IDs
+	orgID, _, providers, ok := modelroute.ResolveAccessibleProviders(reqCtx, api.authService, api.projectService, api.providerRegistry)
+	if !ok {
+		return // error already sent by ResolveAccessibleProviders
+	}
+
+	// Extract project IDs from providers
+	var projectIDs []uint
+	for _, provider := range providers {
+		if provider != nil && provider.ProjectID != nil {
+			projectIDs = append(projectIDs, *provider.ProjectID)
+		}
+	}
+
+	// Get provider based on the requested model
+	provider, providerErr := api.getProviderForModel(reqCtx, request.Model, orgID, projectIDs)
+	if providerErr != nil {
+		reqCtx.AbortWithStatusJSON(http.StatusBadRequest, responses.ErrorResponse{
+			Code:          providerErr.GetCode(),
+			ErrorInstance: providerErr.GetError(),
+		})
+		return
+	}
+
 	// Handle conversation management
 	conv, conversationCreated, convErr := api.handleConversationManagement(reqCtx, request.Conversation, request.Messages)
 	if convErr != nil {
@@ -182,10 +219,10 @@ func (api *ConvCompletionAPI) PostCompletion(reqCtx *gin.Context) {
 
 	if request.Stream {
 		// Handle streaming completion - streams SSE events and accumulates response
-		response, err = api.completionStreamHandler.StreamCompletionAndAccumulateResponse(reqCtx, "", request.ChatCompletionRequest, conv, conversationCreated, askItemID, completionItemID)
+		response, err = api.completionStreamHandler.StreamCompletionAndAccumulateResponse(reqCtx, provider, "", request.ChatCompletionRequest, conv, conversationCreated, askItemID, completionItemID)
 	} else {
 		// Handle non-streaming completion
-		response, err = api.completionNonStreamHandler.CallCompletionAndGetRestResponse(reqCtx.Request.Context(), "", request.ChatCompletionRequest)
+		response, err = api.completionNonStreamHandler.CallCompletionAndGetRestResponse(reqCtx.Request.Context(), provider, "", request.ChatCompletionRequest)
 	}
 
 	if err != nil {
@@ -236,7 +273,17 @@ func (api *ConvCompletionAPI) GetModels(reqCtx *gin.Context) {
 		providerIDs = append(providerIDs, provider.ID)
 	}
 
-	modelsResp, err := api.modelClient.ListModels(ctx)
+	defaultProvider := api.providerRegistry.DefaultProvider()
+	modelClient, err := api.inferenceProvider.GetChatModelClient(defaultProvider)
+	if err != nil {
+		reqCtx.AbortWithStatusJSON(http.StatusBadGateway, responses.ErrorResponse{
+			Code:          "0199600b-86d3-7339-8402-8ef1c7840474",
+			ErrorInstance: err,
+		})
+		return
+	}
+
+	modelsResp, err := modelClient.ListModels(ctx)
 	if err != nil {
 		reqCtx.AbortWithStatusJSON(http.StatusBadGateway, responses.ErrorResponse{
 			Code:          "0199600b-86d3-7339-8402-8ef1c7840475",

@@ -10,6 +10,7 @@ import (
 type ProviderKind string
 
 const (
+	ProviderJan         ProviderKind = "jan"
 	ProviderOpenAI      ProviderKind = "openai"
 	ProviderOpenRouter  ProviderKind = "openrouter"
 	ProviderAnthropic   ProviderKind = "anthropic"

@@ -7,19 +7,22 @@ import (
 	"github.com/gin-gonic/gin"
 	"menlo.ai/jan-api-gateway/app/domain/auth"
 	domainmodel "menlo.ai/jan-api-gateway/app/domain/model"
+	"menlo.ai/jan-api-gateway/app/infrastructure/inference"
 	"menlo.ai/jan-api-gateway/app/interfaces/http/responses"
 	"menlo.ai/jan-api-gateway/app/utils/ptr"
 )
 
 type ModelProviderRoute struct {
-	authService      *auth.AuthService
-	providerRegistry *domainmodel.ProviderRegistryService
+	authService       *auth.AuthService
+	providerRegistry  *domainmodel.ProviderRegistryService
+	inferenceProvider *inference.InferenceProvider
 }
 
-func NewModelProviderRoute(authService *auth.AuthService, providerRegistry *domainmodel.ProviderRegistryService) *ModelProviderRoute {
+func NewModelProviderRoute(authService *auth.AuthService, providerRegistry *domainmodel.ProviderRegistryService, inferenceProvider *inference.InferenceProvider) *ModelProviderRoute {
 	return &ModelProviderRoute{
-		authService:      authService,
-		providerRegistry: providerRegistry,
+		authService:       authService,
+		providerRegistry:  providerRegistry,
+		inferenceProvider: inferenceProvider,
 	}
 }
 
@@ -117,6 +120,25 @@ func (route *ModelProviderRoute) registerProvider(reqCtx *gin.Context) {
 		})
 		return
 	}
+
+	models, fetchErr := route.inferenceProvider.ListModels(ctx, result.Provider)
+	if fetchErr != nil {
+		reqCtx.AbortWithStatusJSON(http.StatusBadGateway, responses.ErrorResponse{
+			Code:          "cbe9fb03-a434-4d57-8a59-7b1e6830f9e5",
+			ErrorInstance: fetchErr,
+		})
+		return
+	}
+
+	syncResults, syncErr := route.providerRegistry.SyncProviderModels(ctx, result.Provider, models)
+	if syncErr != nil {
+		reqCtx.AbortWithStatusJSON(http.StatusInternalServerError, responses.ErrorResponse{
+			Code:  syncErr.GetCode(),
+			Error: syncErr.GetMessage(),
+		})
+		return
+	}
+	result.Models = syncResults
 
 	resp := toRegisterProviderResponse(result)
 	reqCtx.JSON(http.StatusOK, resp)

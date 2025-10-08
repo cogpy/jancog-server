@@ -14,6 +14,7 @@ import (
 	"menlo.ai/jan-api-gateway/app/domain/organization"
 	"menlo.ai/jan-api-gateway/app/domain/project"
 	"menlo.ai/jan-api-gateway/app/domain/query"
+	"menlo.ai/jan-api-gateway/app/infrastructure/inference"
 	"menlo.ai/jan-api-gateway/app/interfaces/http/responses"
 	"menlo.ai/jan-api-gateway/app/interfaces/http/responses/openai"
 	projectApikeyRoute "menlo.ai/jan-api-gateway/app/interfaces/http/routes/v1/organization/projects/api_keys"
@@ -27,6 +28,7 @@ type ProjectsRoute struct {
 	authService        *auth.AuthService
 	projectApiKeyRoute *projectApikeyRoute.ProjectApiKeyRoute
 	providerRegistry   *domainmodel.ProviderRegistryService
+	inferenceProvider  *inference.InferenceProvider
 }
 
 func NewProjectsRoute(
@@ -35,6 +37,7 @@ func NewProjectsRoute(
 	authService *auth.AuthService,
 	projectApiKeyRoute *projectApikeyRoute.ProjectApiKeyRoute,
 	providerRegistry *domainmodel.ProviderRegistryService,
+	inferenceProvider *inference.InferenceProvider,
 ) *ProjectsRoute {
 	return &ProjectsRoute{
 		projectService,
@@ -42,6 +45,7 @@ func NewProjectsRoute(
 		authService,
 		projectApiKeyRoute,
 		providerRegistry,
+		inferenceProvider,
 	}
 }
 
@@ -455,6 +459,25 @@ func (api *ProjectsRoute) registerProjectProvider(reqCtx *gin.Context) {
 		})
 		return
 	}
+
+	models, fetchErr := api.inferenceProvider.ListModels(ctx, result.Provider)
+	if fetchErr != nil {
+		reqCtx.AbortWithStatusJSON(http.StatusBadGateway, responses.ErrorResponse{
+			Code:          "cbe9fb03-a434-4d57-8a59-7b1e6830f9e5",
+			ErrorInstance: fetchErr,
+		})
+		return
+	}
+
+	syncResults, syncErr := api.providerRegistry.SyncProviderModels(ctx, result.Provider, models)
+	if syncErr != nil {
+		reqCtx.AbortWithStatusJSON(http.StatusInternalServerError, responses.ErrorResponse{
+			Code:  syncErr.GetCode(),
+			Error: syncErr.GetMessage(),
+		})
+		return
+	}
+	result.Models = syncResults
 
 	resp := toProjectRegisterProviderResponse(result, projectEntity.PublicID)
 	reqCtx.JSON(http.StatusOK, resp)
