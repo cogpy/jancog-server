@@ -6,82 +6,32 @@ import (
 
 	"github.com/gin-gonic/gin"
 	openai "github.com/sashabaranov/go-openai"
-	"menlo.ai/jan-api-gateway/app/domain/auth"
 	"menlo.ai/jan-api-gateway/app/domain/common"
 	domainmodel "menlo.ai/jan-api-gateway/app/domain/model"
 	"menlo.ai/jan-api-gateway/app/domain/organization"
-	"menlo.ai/jan-api-gateway/app/domain/project"
 	"menlo.ai/jan-api-gateway/app/infrastructure/inference"
 	"menlo.ai/jan-api-gateway/app/interfaces/http/responses"
 	"menlo.ai/jan-api-gateway/app/utils/logger"
-	"menlo.ai/jan-api-gateway/app/utils/ptr"
 )
 
 // CompletionAPI handles chat completion requests with streaming support by delegating to the shared chat completion client.
 type CompletionAPI struct {
 	inferenceProvider *inference.InferenceProvider
-	authService       *auth.AuthService
-	projectService    *project.ProjectService
 	providerRegistry  *domainmodel.ProviderRegistryService
 }
 
 func NewCompletionAPI(
 	inferenceProvider *inference.InferenceProvider,
-	authService *auth.AuthService,
-	projectService *project.ProjectService,
 	providerRegistry *domainmodel.ProviderRegistryService,
 ) *CompletionAPI {
 	return &CompletionAPI{
 		inferenceProvider: inferenceProvider,
-		authService:       authService,
-		projectService:    projectService,
 		providerRegistry:  providerRegistry,
 	}
 }
 
 func (completionAPI *CompletionAPI) RegisterRouter(router *gin.RouterGroup) {
 	router.POST("/completions", completionAPI.PostCompletion)
-}
-
-// getProviderForModel resolves the provider for a given model key based on user's access
-func (cApi *CompletionAPI) getProviderForModel(reqCtx *gin.Context, modelKey string) (*domainmodel.Provider, *common.Error) {
-	ctx := reqCtx.Request.Context()
-
-	// Get user from context
-	user, ok := auth.GetUserFromContext(reqCtx)
-	if !ok || user == nil {
-		// If no user context, fall back to the default provider
-		logger.GetLogger().Warnf("No user context found, using default provider as fallback")
-		return cApi.providerRegistry.DefaultProvider(), nil
-	}
-
-	// Get organization ID (default organization for all users)
-	orgID := organization.DEFAULT_ORGANIZATION.ID
-	orgIDPtr := ptr.ToUint(orgID)
-	memberID := user.ID
-
-	// Get user's accessible projects
-	var projectIDs []uint
-	projects, err := cApi.projectService.Find(ctx, project.ProjectFilter{
-		OrganizationID: orgIDPtr,
-		MemberID:       &memberID,
-	}, nil)
-	if err != nil {
-		logger.GetLogger().Warnf("Failed to get user projects: %v, using default provider as fallback", err)
-		return cApi.providerRegistry.DefaultProvider(), nil
-	}
-
-	for _, proj := range projects {
-		projectIDs = append(projectIDs, proj.ID)
-	}
-
-	// Find provider for the model (priority: Project → Organization → Global)
-	provider, usedDefault, err := cApi.providerRegistry.GetProviderForModelOrDefault(ctx, modelKey, orgID, projectIDs)
-	if err != nil && usedDefault {
-		logger.GetLogger().Errorf("Failed to find provider for model '%s': %v, falling back to default provider", modelKey, err)
-	}
-
-	return provider, nil
 }
 
 // PostCompletion
@@ -133,11 +83,11 @@ func (cApi *CompletionAPI) PostCompletion(reqCtx *gin.Context) {
 	}
 
 	// Get provider based on the requested model
-	provider, providerErr := cApi.getProviderForModel(reqCtx, request.Model)
+	provider, providerErr := cApi.providerRegistry.GetProviderForModel(reqCtx, request.Model, organization.DEFAULT_ORGANIZATION.ID, nil)
 	if providerErr != nil {
 		reqCtx.AbortWithStatusJSON(http.StatusBadRequest, responses.ErrorResponse{
-			Code:          providerErr.GetCode(),
-			ErrorInstance: providerErr.GetError(),
+			Code:          "b34bc6d8-6e51-44d9-af0b-35f7892112cc",
+			ErrorInstance: providerErr,
 		})
 		return
 	}

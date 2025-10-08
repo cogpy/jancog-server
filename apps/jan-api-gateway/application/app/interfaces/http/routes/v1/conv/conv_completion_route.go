@@ -60,19 +60,6 @@ func NewConvCompletionAPI(
 	}
 }
 
-// getProviderForModel resolves the provider for a given model key based on user's access
-func (api *ConvCompletionAPI) getProviderForModel(reqCtx *gin.Context, modelKey string, orgID uint, projectIDs []uint) (*domainmodel.Provider, *common.Error) {
-	ctx := reqCtx.Request.Context()
-
-	// Find provider for the model (priority: Project → Organization → Global)
-	provider, usedDefault, err := api.providerRegistry.GetProviderForModelOrDefault(ctx, modelKey, orgID, projectIDs)
-	if err != nil && usedDefault {
-		logger.GetLogger().Errorf("Failed to find provider for model '%s': %v, falling back to default provider", modelKey, err)
-	}
-
-	return provider, nil
-}
-
 func (completionAPI *ConvCompletionAPI) RegisterRouter(router *gin.RouterGroup) {
 	// Register chat completions under /chat subroute
 	chatRouter := router.Group("/chat")
@@ -192,11 +179,11 @@ func (api *ConvCompletionAPI) PostCompletion(reqCtx *gin.Context) {
 	}
 
 	// Get provider based on the requested model
-	provider, providerErr := api.getProviderForModel(reqCtx, request.Model, orgID, projectIDs)
+	provider, providerErr := api.providerRegistry.GetProviderForModel(reqCtx, request.Model, orgID, projectIDs)
 	if providerErr != nil {
 		reqCtx.AbortWithStatusJSON(http.StatusBadRequest, responses.ErrorResponse{
-			Code:          providerErr.GetCode(),
-			ErrorInstance: providerErr.GetError(),
+			Code:          "c02a655b-8a83-42e6-af36-58ca4bae505b",
+			ErrorInstance: providerErr,
 		})
 		return
 	}
@@ -276,25 +263,6 @@ func (api *ConvCompletionAPI) GetModels(reqCtx *gin.Context) {
 		providerIDs = append(providerIDs, provider.ID)
 	}
 
-	defaultProvider := api.providerRegistry.DefaultProvider()
-	modelClient, err := api.inferenceProvider.GetChatModelClient(defaultProvider)
-	if err != nil {
-		reqCtx.AbortWithStatusJSON(http.StatusBadGateway, responses.ErrorResponse{
-			Code:          "0199600b-86d3-7339-8402-8ef1c7840474",
-			ErrorInstance: err,
-		})
-		return
-	}
-
-	modelsResp, err := modelClient.ListModels(ctx)
-	if err != nil {
-		reqCtx.AbortWithStatusJSON(http.StatusBadGateway, responses.ErrorResponse{
-			Code:          "0199600b-86d3-7339-8402-8ef1c7840475",
-			ErrorInstance: err,
-		})
-		return
-	}
-
 	providerModels, err := api.providerModelService.ListActiveByProviderIDs(ctx, providerIDs)
 	if err != nil {
 		reqCtx.AbortWithStatusJSON(http.StatusInternalServerError, responses.ErrorResponse{
@@ -305,7 +273,7 @@ func (api *ConvCompletionAPI) GetModels(reqCtx *gin.Context) {
 	}
 
 	if includeProviderData {
-		models := modelroute.BuildModelsWithProvider(modelsResp.Data, providerModels, providerByID)
+		models := modelroute.BuildModelsWithProvider(providerModels, providerByID)
 		reqCtx.JSON(http.StatusOK, ModelsWithProviderResponse{
 			Object: "list",
 			Data:   models,
@@ -315,7 +283,7 @@ func (api *ConvCompletionAPI) GetModels(reqCtx *gin.Context) {
 
 	reqCtx.JSON(http.StatusOK, ModelsResponse{
 		Object: "list",
-		Data:   modelroute.MergeModels(modelsResp.Data, providerModels, providerByID),
+		Data:   modelroute.MergeModels(providerModels, providerByID),
 	})
 }
 

@@ -74,18 +74,6 @@ func NewResponseModelService(
 	return responseModelService
 }
 
-// getProviderForModel resolves the provider for a given model key and user
-func (h *ResponseModelService) getProviderForModel(ctx context.Context, modelKey string, userID uint) (*domainmodel.Provider, error) {
-	_ = userID // placeholder for future project-specific lookups
-
-	// Get user's organization (default organization for all users)
-	orgID := organization.DEFAULT_ORGANIZATION.ID
-
-	// Find provider for the model (priority: Project → Organization → Global)
-	provider, _, err := h.providerRegistry.GetProviderForModelOrDefault(ctx, modelKey, orgID, nil)
-	return provider, err
-}
-
 // CreateResponse handles the business logic for creating a response
 // Returns domain objects and business logic results, no HTTP concerns
 func (h *ResponseModelService) CreateResponse(ctx context.Context, userID uint, request *requesttypes.CreateResponseRequest) (*ResponseCreationResult, *common.Error) {
@@ -105,7 +93,7 @@ func (h *ResponseModelService) CreateResponse(ctx context.Context, userID uint, 
 	}
 
 	// Get provider based on the requested model
-	provider, providerErr := h.getProviderForModel(ctx, request.Model, userID)
+	provider, providerErr := h.providerRegistry.GetProviderForModel(ctx, request.Model, organization.DEFAULT_ORGANIZATION.ID, nil)
 	if providerErr != nil {
 		logger.GetLogger().Warnf("Failed to find provider for model '%s': %v, using default provider", request.Model, providerErr)
 	}

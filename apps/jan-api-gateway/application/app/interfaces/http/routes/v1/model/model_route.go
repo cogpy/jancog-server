@@ -10,7 +10,6 @@ import (
 	"menlo.ai/jan-api-gateway/app/domain/project"
 	"menlo.ai/jan-api-gateway/app/infrastructure/inference"
 	"menlo.ai/jan-api-gateway/app/interfaces/http/responses"
-	"menlo.ai/jan-api-gateway/config/environment_variables"
 )
 
 type ModelAPI struct {
@@ -34,17 +33,6 @@ func NewModelAPI(
 		projectService:       projectService,
 		providerRegistry:     providerRegistry,
 		providerModelService: providerModelService,
-	}
-}
-
-// getJanProvider creates a Jan provider using environment variables
-func (modelAPI *ModelAPI) getJanProvider() *domainmodel.Provider {
-	return &domainmodel.Provider{
-		DisplayName:     "Jan",
-		Kind:            domainmodel.ProviderJan,
-		BaseURL:         environment_variables.EnvironmentVariables.JAN_INFERENCE_MODEL_URL,
-		EncryptedAPIKey: "", // Jan doesn't require API key
-		Active:          true,
 	}
 }
 
@@ -84,26 +72,6 @@ func (modelAPI *ModelAPI) GetModels(reqCtx *gin.Context) {
 		providerIDs = append(providerIDs, provider.ID)
 	}
 
-	// Get Jan provider and create model client
-	janProvider := modelAPI.getJanProvider()
-	modelClient, err := modelAPI.inferenceProvider.GetChatModelClient(janProvider)
-	if err != nil {
-		reqCtx.AbortWithStatusJSON(http.StatusBadGateway, responses.ErrorResponse{
-			Code:          "0199600b-86d3-7339-8402-8ef1c7840476",
-			ErrorInstance: err,
-		})
-		return
-	}
-
-	janModelsResp, err := modelClient.ListModels(ctx)
-	if err != nil {
-		reqCtx.AbortWithStatusJSON(http.StatusBadGateway, responses.ErrorResponse{
-			Code:          "0199600b-86d3-7339-8402-8ef1c7840475",
-			ErrorInstance: err,
-		})
-		return
-	}
-
 	providerModels, err := modelAPI.providerModelService.ListActiveByProviderIDs(ctx, providerIDs)
 	if err != nil {
 		reqCtx.AbortWithStatusJSON(http.StatusInternalServerError, responses.ErrorResponse{
@@ -114,7 +82,7 @@ func (modelAPI *ModelAPI) GetModels(reqCtx *gin.Context) {
 	}
 
 	if includeProviderData {
-		models := BuildModelsWithProvider(janModelsResp.Data, providerModels, providerByID)
+		models := BuildModelsWithProvider(providerModels, providerByID)
 		reqCtx.JSON(http.StatusOK, ModelsWithProviderResponse{
 			Object: "list",
 			Data:   models,
@@ -122,7 +90,7 @@ func (modelAPI *ModelAPI) GetModels(reqCtx *gin.Context) {
 		return
 	}
 
-	result := MergeModels(janModelsResp.Data, providerModels, providerByID)
+	result := MergeModels(providerModels, providerByID)
 	reqCtx.JSON(http.StatusOK, ModelsResponse{
 		Object: "list",
 		Data:   result,

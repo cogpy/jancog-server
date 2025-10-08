@@ -12,7 +12,6 @@ import (
 	"menlo.ai/jan-api-gateway/app/domain/organization"
 	"menlo.ai/jan-api-gateway/app/domain/project"
 	"menlo.ai/jan-api-gateway/app/interfaces/http/responses"
-	chatclient "menlo.ai/jan-api-gateway/app/utils/httpclients/chat"
 	"menlo.ai/jan-api-gateway/app/utils/ptr"
 )
 
@@ -93,11 +92,10 @@ type ModelsWithProviderResponse struct {
 }
 
 func BuildModelsWithProvider(
-	janModels []chatclient.Model,
 	providerModels []*domainmodel.ProviderModel,
 	providerByID map[uint]*domainmodel.Provider,
 ) []ModelWithProvider {
-	items := make([]ModelWithProvider, 0, len(janModels)+len(providerModels))
+	items := make([]ModelWithProvider, 0, len(providerModels))
 
 	for _, pm := range providerModels {
 		if pm == nil {
@@ -118,17 +116,6 @@ func BuildModelsWithProvider(
 		})
 	}
 
-	for _, jm := range janModels {
-		items = append(items, ModelWithProvider{
-			ID:             jm.ID,
-			Object:         jm.Object,
-			ProviderID:     "jan",
-			ProviderType:   "jan",
-			ProviderVendor: strings.ToLower(strings.TrimSpace(jm.OwnedBy)),
-			ProviderName:   "Jan",
-		})
-	}
-
 	sort.SliceStable(items, func(i, j int) bool {
 		pi := providerTypePriority(items[i].ProviderType)
 		pj := providerTypePriority(items[j].ProviderType)
@@ -142,22 +129,11 @@ func BuildModelsWithProvider(
 }
 
 func MergeModels(
-	janModels []chatclient.Model,
 	providerModels []*domainmodel.ProviderModel,
 	providerByID map[uint]*domainmodel.Provider,
 ) []Model {
 	result := map[string]Model{}
 	priority := map[string]int{}
-
-	for _, jm := range janModels {
-		result[jm.ID] = Model{
-			ID:      jm.ID,
-			Object:  jm.Object,
-			Created: jm.Created,
-			OwnedBy: jm.OwnedBy,
-		}
-		priority[jm.ID] = 0
-	}
 
 	for _, pm := range providerModels {
 		if pm == nil {

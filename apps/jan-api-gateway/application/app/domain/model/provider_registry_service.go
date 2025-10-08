@@ -429,25 +429,6 @@ func (s *ProviderRegistryService) GetProviderForModel(ctx context.Context, model
 	return nil, fmt.Errorf("no valid provider found for model '%s'", modelKey)
 }
 
-func (s *ProviderRegistryService) DefaultProvider() *Provider {
-	return &Provider{
-		DisplayName:     "Jan",
-		Kind:            ProviderJan,
-		BaseURL:         environment_variables.EnvironmentVariables.JAN_INFERENCE_MODEL_URL,
-		EncryptedAPIKey: "",
-		Active:          true,
-	}
-}
-
-func (s *ProviderRegistryService) GetProviderForModelOrDefault(ctx context.Context, modelKey string, organizationID uint, projectIDs []uint) (*Provider, bool, error) {
-	provider, err := s.GetProviderForModel(ctx, modelKey, organizationID, projectIDs)
-	if err == nil {
-		return provider, false, nil
-	}
-
-	return s.DefaultProvider(), true, err
-}
-
 func sanitizeMetadata(metadata map[string]string) map[string]string {
 	if len(metadata) == 0 {
 		return nil

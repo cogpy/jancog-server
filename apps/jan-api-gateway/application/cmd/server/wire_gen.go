@@ -89,7 +89,7 @@ func CreateApplication() (*Application, error) {
 	invitesRoute := invites.NewInvitesRoute(inviteService, projectService, organizationService, authService)
 	modelProviderRoute := organization2.NewModelProviderRoute(authService, providerRegistryService, inferenceProvider)
 	organizationRoute := organization2.NewOrganizationRoute(adminApiKeyAPI, projectsRoute, invitesRoute, modelProviderRoute, authService)
-	completionAPI := chat.NewCompletionAPI(inferenceProvider, authService, projectService, providerRegistryService)
+	completionAPI := chat.NewCompletionAPI(inferenceProvider, providerRegistryService)
 	chatRoute := chat.NewChatRoute(completionAPI)
 	conversationRepository := conversationrepo.NewConversationGormRepository(transactionDatabase)
 	itemRepository := itemrepo.NewItemGormRepository(transactionDatabase)
