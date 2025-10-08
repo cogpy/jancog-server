@@ -1,5 +1,7 @@
 # Jan Server
 
+**Author:** [Menlo.ai](https://menlo.ai)
+
 A comprehensive self-hosted AI server platform that provides OpenAI-compatible APIs, multi-tenant organization management, and AI model inference capabilities. Jan Server enables organizations to deploy their own private AI infrastructure with full control over data, models, and access.
 
 ## 🚀 Overview
