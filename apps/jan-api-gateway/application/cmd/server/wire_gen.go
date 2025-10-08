@@ -80,8 +80,10 @@ func CreateApplication() (*Application, error) {
 	projectApiKeyRoute := apikeys.NewProjectApiKeyRoute(organizationService, projectService, apiKeyService, userService)
 	providerRepository := modelrepo.NewProviderGormRepository(transactionDatabase)
 	providerModelRepository := modelrepo.NewProviderModelGormRepository(transactionDatabase)
+	providerModelService := model.NewProviderModelService(providerModelRepository)
 	modelCatalogRepository := modelrepo.NewModelCatalogGormRepository(transactionDatabase)
-	providerRegistryService := model.NewProviderRegistryService(providerRepository, providerModelRepository, modelCatalogRepository)
+	modelCatalogService := model.NewModelCatalogService(modelCatalogRepository)
+	providerRegistryService := model.NewProviderRegistryService(providerRepository, providerModelService, modelCatalogService)
 	inferenceProvider := inference.NewInferenceProvider()
 	projectsRoute := projects.NewProjectsRoute(projectService, apiKeyService, authService, projectApiKeyRoute, providerRegistryService, inferenceProvider)
 	invitesRoute := invites.NewInvitesRoute(inviteService, projectService, organizationService, authService)
@@ -94,7 +96,7 @@ func CreateApplication() (*Application, error) {
 	conversationService := conversation.NewService(conversationRepository, itemRepository)
 	completionNonStreamHandler := conv.NewCompletionNonStreamHandler(inferenceProvider, conversationService)
 	completionStreamHandler := conv.NewCompletionStreamHandler(inferenceProvider, conversationService)
-	convCompletionAPI := conv.NewConvCompletionAPI(completionNonStreamHandler, completionStreamHandler, conversationService, authService, projectService, providerRegistryService, inferenceProvider)
+	convCompletionAPI := conv.NewConvCompletionAPI(completionNonStreamHandler, completionStreamHandler, conversationService, authService, projectService, providerRegistryService, providerModelService, inferenceProvider)
 	serperService := serpermcp.NewSerperService()
 	serperMCP := mcpimpl.NewSerperMCP(serperService)
 	convMCPAPI := conv.NewConvMCPAPI(authService, serperMCP)
@@ -103,7 +105,7 @@ func CreateApplication() (*Application, error) {
 	workspaceService := workspace.NewWorkspaceService(workspaceRepository, conversationRepository)
 	workspaceRoute := conv.NewWorkspaceRoute(authService, workspaceService)
 	conversationAPI := conversations.NewConversationAPI(conversationService, authService, workspaceService)
-	modelAPI := modelroute.NewModelAPI(inferenceProvider, authService, projectService, providerRegistryService)
+	modelAPI := modelroute.NewModelAPI(inferenceProvider, authService, projectService, providerRegistryService, providerModelService)
 	providersAPI := modelroute.NewProvidersAPI(authService, projectService, providerRegistryService)
 	mcpapi := mcp.NewMCPAPI(serperMCP, authService)
 	googleAuthAPI := google.NewGoogleAuthAPI(userService, authService)
@@ -141,13 +143,16 @@ func CreateDataInitializer() (*DataInitializer, error) {
 	authService := auth.NewAuthService(userService, apiKeyService, organizationService, projectService, inviteService)
 	providerRepository := modelrepo.NewProviderGormRepository(transactionDatabase)
 	providerModelRepository := modelrepo.NewProviderModelGormRepository(transactionDatabase)
+	providerModelService := model.NewProviderModelService(providerModelRepository)
 	modelCatalogRepository := modelrepo.NewModelCatalogGormRepository(transactionDatabase)
-	providerRegistryService := model.NewProviderRegistryService(providerRepository, providerModelRepository, modelCatalogRepository)
+	modelCatalogService := model.NewModelCatalogService(modelCatalogRepository)
+	providerRegistryService := model.NewProviderRegistryService(providerRepository, providerModelService, modelCatalogService)
 	inferenceProvider := inference.NewInferenceProvider()
 	dataInitializer := &DataInitializer{
-		authService:       authService,
-		providerRegistry:  providerRegistryService,
-		inferenceProvider: inferenceProvider,
+		authService:         authService,
+		providerRegistry:    providerRegistryService,
+		modelCatalogService: modelCatalogService,
+		inferenceProvider:   inferenceProvider,
 	}
 	return dataInitializer, nil
 }

@@ -18,7 +18,11 @@ type ModelProviderRoute struct {
 	inferenceProvider *inference.InferenceProvider
 }
 
-func NewModelProviderRoute(authService *auth.AuthService, providerRegistry *domainmodel.ProviderRegistryService, inferenceProvider *inference.InferenceProvider) *ModelProviderRoute {
+func NewModelProviderRoute(
+	authService *auth.AuthService,
+	providerRegistry *domainmodel.ProviderRegistryService,
+	inferenceProvider *inference.InferenceProvider,
+) *ModelProviderRoute {
 	return &ModelProviderRoute{
 		authService:       authService,
 		providerRegistry:  providerRegistry,

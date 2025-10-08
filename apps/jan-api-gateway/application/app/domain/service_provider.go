@@ -25,6 +25,8 @@ var ServiceProvider = wire.NewSet(
 	user.NewService,
 	conversation.NewService,
 	workspace.NewWorkspaceService,
+	domainmodel.NewProviderModelService,
+	domainmodel.NewModelCatalogService,
 	domainmodel.NewProviderRegistryService,
 	response.NewResponseService,
 	response.NewResponseModelService,

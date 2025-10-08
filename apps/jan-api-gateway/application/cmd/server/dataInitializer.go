@@ -12,9 +12,10 @@ import (
 )
 
 type DataInitializer struct {
-	authService       *auth.AuthService
-	providerRegistry  *model.ProviderRegistryService
-	inferenceProvider *inference.InferenceProvider
+	authService         *auth.AuthService
+	providerRegistry    *model.ProviderRegistryService
+	modelCatalogService *model.ModelCatalogService
+	inferenceProvider   *inference.InferenceProvider
 }
 
 func (d *DataInitializer) Install(ctx context.Context) error {

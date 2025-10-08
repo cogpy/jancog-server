@@ -34,6 +34,7 @@ type ConvCompletionAPI struct {
 	authService                *auth.AuthService
 	projectService             *project.ProjectService
 	providerRegistry           *domainmodel.ProviderRegistryService
+	providerModelService       *domainmodel.ProviderModelService
 	inferenceProvider          *inference.InferenceProvider
 }
 
@@ -44,6 +45,7 @@ func NewConvCompletionAPI(
 	authService *auth.AuthService,
 	projectService *project.ProjectService,
 	providerRegistry *domainmodel.ProviderRegistryService,
+	providerModelService *domainmodel.ProviderModelService,
 	inferenceProvider *inference.InferenceProvider,
 ) *ConvCompletionAPI {
 	return &ConvCompletionAPI{
@@ -53,6 +55,7 @@ func NewConvCompletionAPI(
 		authService:                authService,
 		projectService:             projectService,
 		providerRegistry:           providerRegistry,
+		providerModelService:       providerModelService,
 		inferenceProvider:          inferenceProvider,
 	}
 }
@@ -292,7 +295,7 @@ func (api *ConvCompletionAPI) GetModels(reqCtx *gin.Context) {
 		return
 	}
 
-	providerModels, err := api.providerRegistry.ListProviderModels(ctx, providerIDs)
+	providerModels, err := api.providerModelService.ListActiveByProviderIDs(ctx, providerIDs)
 	if err != nil {
 		reqCtx.AbortWithStatusJSON(http.StatusInternalServerError, responses.ErrorResponse{
 			Code:          "f7f0f635-3f13-4c6f-b436-a78a5ccaa1af",

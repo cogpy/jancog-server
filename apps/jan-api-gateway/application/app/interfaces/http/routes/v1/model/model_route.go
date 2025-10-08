@@ -14,10 +14,11 @@ import (
 )
 
 type ModelAPI struct {
-	inferenceProvider *inference.InferenceProvider
-	authService       *auth.AuthService
-	projectService    *project.ProjectService
-	providerRegistry  *domainmodel.ProviderRegistryService
+	inferenceProvider    *inference.InferenceProvider
+	authService          *auth.AuthService
+	projectService       *project.ProjectService
+	providerRegistry     *domainmodel.ProviderRegistryService
+	providerModelService *domainmodel.ProviderModelService
 }
 
 func NewModelAPI(
@@ -25,12 +26,14 @@ func NewModelAPI(
 	authService *auth.AuthService,
 	projectService *project.ProjectService,
 	providerRegistry *domainmodel.ProviderRegistryService,
+	providerModelService *domainmodel.ProviderModelService,
 ) *ModelAPI {
 	return &ModelAPI{
-		inferenceProvider: inferenceProvider,
-		authService:       authService,
-		projectService:    projectService,
-		providerRegistry:  providerRegistry,
+		inferenceProvider:    inferenceProvider,
+		authService:          authService,
+		projectService:       projectService,
+		providerRegistry:     providerRegistry,
+		providerModelService: providerModelService,
 	}
 }
 
@@ -101,7 +104,7 @@ func (modelAPI *ModelAPI) GetModels(reqCtx *gin.Context) {
 		return
 	}
 
-	providerModels, err := modelAPI.providerRegistry.ListProviderModels(ctx, providerIDs)
+	providerModels, err := modelAPI.providerModelService.ListActiveByProviderIDs(ctx, providerIDs)
 	if err != nil {
 		reqCtx.AbortWithStatusJSON(http.StatusInternalServerError, responses.ErrorResponse{
 			Code:          "f7f0f635-3f13-4c6f-b436-a78a5ccaa1af",
