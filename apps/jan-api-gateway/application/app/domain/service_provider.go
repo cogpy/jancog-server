@@ -8,6 +8,7 @@ import (
 	"menlo.ai/jan-api-gateway/app/domain/cron"
 	"menlo.ai/jan-api-gateway/app/domain/invite"
 	"menlo.ai/jan-api-gateway/app/domain/mcp/serpermcp"
+	domainmodel "menlo.ai/jan-api-gateway/app/domain/model"
 	"menlo.ai/jan-api-gateway/app/domain/organization"
 	"menlo.ai/jan-api-gateway/app/domain/project"
 	"menlo.ai/jan-api-gateway/app/domain/response"
@@ -24,6 +25,7 @@ var ServiceProvider = wire.NewSet(
 	user.NewService,
 	conversation.NewService,
 	workspace.NewWorkspaceService,
+	domainmodel.NewProviderRegistryService,
 	response.NewResponseService,
 	response.NewResponseModelService,
 	response.NewStreamModelService,

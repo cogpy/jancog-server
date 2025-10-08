@@ -30,8 +30,8 @@ func (repo *ProviderModelGormRepository) applyFilter(query *gormgen.Query, sql g
 	if filter.ProviderIDs != nil && len(*filter.ProviderIDs) > 0 {
 		sql = sql.Where(query.ProviderModel.ProviderID.In((*filter.ProviderIDs)...))
 	}
-	if filter.ModelID != nil {
-		sql = sql.Where(query.ProviderModel.ModelID.Eq(*filter.ModelID))
+	if filter.ModelCatalogID != nil {
+		sql = sql.Where(query.ProviderModel.ModelCatalogID.Eq(*filter.ModelCatalogID))
 	}
 	if filter.ModelKey != nil {
 		sql = sql.Where(query.ProviderModel.ModelKey.Eq(*filter.ModelKey))

@@ -14,6 +14,7 @@ import (
 	"menlo.ai/jan-api-gateway/app/domain/cron"
 	"menlo.ai/jan-api-gateway/app/domain/invite"
 	"menlo.ai/jan-api-gateway/app/domain/mcp/serpermcp"
+	domainmodel "menlo.ai/jan-api-gateway/app/domain/model"
 	"menlo.ai/jan-api-gateway/app/domain/organization"
 	"menlo.ai/jan-api-gateway/app/domain/project"
 	"menlo.ai/jan-api-gateway/app/domain/response"
@@ -25,6 +26,7 @@ import (
 	"menlo.ai/jan-api-gateway/app/infrastructure/database/repository/conversationrepo"
 	"menlo.ai/jan-api-gateway/app/infrastructure/database/repository/inviterepo"
 	"menlo.ai/jan-api-gateway/app/infrastructure/database/repository/itemrepo"
+	"menlo.ai/jan-api-gateway/app/infrastructure/database/repository/modelrepo"
 	"menlo.ai/jan-api-gateway/app/infrastructure/database/repository/organizationrepo"
 	"menlo.ai/jan-api-gateway/app/infrastructure/database/repository/projectrepo"
 	"menlo.ai/jan-api-gateway/app/infrastructure/database/repository/responserepo"
@@ -77,7 +79,6 @@ func CreateApplication() (*Application, error) {
 	projectApiKeyRoute := apikeys.NewProjectApiKeyRoute(organizationService, projectService, apiKeyService, userService)
 	projectsRoute := projects.NewProjectsRoute(projectService, apiKeyService, authService, projectApiKeyRoute)
 	invitesRoute := invites.NewInvitesRoute(inviteService, projectService, organizationService, authService)
-	organizationRoute := organization2.NewOrganizationRoute(adminApiKeyAPI, projectsRoute, invitesRoute, authService)
 	client := inference.NewJanRestyClient()
 	chatCompletionClient := inference.NewJanChatCompletionClient(client)
 	completionAPI := chat.NewCompletionAPI(chatCompletionClient, authService)
@@ -87,6 +88,10 @@ func CreateApplication() (*Application, error) {
 	conversationService := conversation.NewService(conversationRepository, itemRepository)
 	completionNonStreamHandler := conv.NewCompletionNonStreamHandler(chatCompletionClient, conversationService)
 	completionStreamHandler := conv.NewCompletionStreamHandler(chatCompletionClient, conversationService)
+	providerRepository := modelrepo.NewProviderGormRepository(transactionDatabase)
+	providerModelRepository := modelrepo.NewProviderModelGormRepository(transactionDatabase)
+	modelCatalogRepository := modelrepo.NewModelCatalogGormRepository(transactionDatabase)
+	providerRegistryService := domainmodel.NewProviderRegistryService(providerRepository, providerModelRepository, modelCatalogRepository)
 	chatModelClient := inference.NewJanChatModelClient(client)
 	convCompletionAPI := conv.NewConvCompletionAPI(completionNonStreamHandler, completionStreamHandler, conversationService, authService, chatModelClient)
 	serperService := serpermcp.NewSerperService()
@@ -107,6 +112,8 @@ func CreateApplication() (*Application, error) {
 	streamModelService := response.NewStreamModelService(responseModelService)
 	nonStreamModelService := response.NewNonStreamModelService(responseModelService)
 	responseRoute := responses.NewResponseRoute(responseModelService, authService, responseService, streamModelService, nonStreamModelService)
+	modelProviderRoute := organization2.NewModelProviderRoute(authService, providerRegistryService)
+	organizationRoute := organization2.NewOrganizationRoute(adminApiKeyAPI, projectsRoute, invitesRoute, modelProviderRoute, authService)
 	v1Route := v1.NewV1Route(organizationRoute, chatRoute, convChatRoute, workspaceRoute, conversationAPI, modelAPI, mcpapi, authRoute, responseRoute)
 	httpServer := http.NewHttpServer(v1Route)
 	cronService := cron.NewCronService()

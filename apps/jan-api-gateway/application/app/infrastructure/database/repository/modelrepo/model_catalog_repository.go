@@ -2,7 +2,9 @@ package modelrepo
 
 import (
 	"context"
+	"errors"
 
+	"gorm.io/gorm"
 	domainmodel "menlo.ai/jan-api-gateway/app/domain/model"
 	"menlo.ai/jan-api-gateway/app/domain/query"
 	"menlo.ai/jan-api-gateway/app/infrastructure/database/dbschema"
@@ -23,6 +25,9 @@ func NewModelCatalogGormRepository(db *transaction.Database) domainmodel.ModelCa
 func (repo *ModelCatalogGormRepository) applyFilter(query *gormgen.Query, sql gormgen.IModelCatalogDo, filter domainmodel.ModelCatalogFilter) gormgen.IModelCatalogDo {
 	if filter.IDs != nil && len(*filter.IDs) > 0 {
 		sql = sql.Where(query.ModelCatalog.ID.In((*filter.IDs)...))
+	}
+	if filter.PublicID != nil {
+		sql = sql.Where(query.ModelCatalog.PublicID.Eq(*filter.PublicID))
 	}
 	if filter.IsModerated != nil {
 		sql = sql.Where(query.ModelCatalog.IsModerated.Is(*filter.IsModerated))
@@ -70,6 +75,18 @@ func (repo *ModelCatalogGormRepository) FindByID(ctx context.Context, id uint) (
 	query := repo.db.GetQuery(ctx)
 	model, err := query.ModelCatalog.WithContext(ctx).Where(query.ModelCatalog.ID.Eq(id)).First()
 	if err != nil {
+		return nil, err
+	}
+	return model.EtoD()
+}
+
+func (repo *ModelCatalogGormRepository) FindByPublicID(ctx context.Context, publicID string) (*domainmodel.ModelCatalog, error) {
+	query := repo.db.GetQuery(ctx)
+	model, err := query.ModelCatalog.WithContext(ctx).Where(query.ModelCatalog.PublicID.Eq(publicID)).First()
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
 		return nil, err
 	}
 	return model.EtoD()

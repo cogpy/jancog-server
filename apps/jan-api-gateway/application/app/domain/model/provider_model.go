@@ -69,6 +69,7 @@ type ProviderModelFilter struct {
 	IDs                *[]uint
 	ProviderIDs        *[]uint
 	ProviderID         *uint
+	ModelCatalogID     *uint
 	ModelKey           *string
 	ModelKeys          *[]string
 	Active             *bool

@@ -42,6 +42,7 @@ type Provider struct {
 	APIKeyHint      *string `json:"api_key_hint,omitempty"` // last4 or source name, not the secret
 	IsModerated     bool    `json:"is_moderated"`           // whether provider enforces moderation upstream
 	Active          bool
+	Metadata        map[string]string `json:"metadata,omitempty"`
 	LastSyncedAt    *time.Time
 	CreatedAt       time.Time
 	UpdatedAt       time.Time

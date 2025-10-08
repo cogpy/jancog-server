@@ -8,18 +8,20 @@ import (
 )
 
 type OrganizationRoute struct {
-	adminApiKeyAPI *AdminApiKeyAPI
-	projectsRoute  *projects.ProjectsRoute
-	inviteRoute    *invites.InvitesRoute
-	authService    *auth.AuthService
+	adminApiKeyAPI     *AdminApiKeyAPI
+	projectsRoute      *projects.ProjectsRoute
+	inviteRoute        *invites.InvitesRoute
+	modelProviderRoute *ModelProviderRoute
+	authService        *auth.AuthService
 }
 
-func NewOrganizationRoute(adminApiKeyAPI *AdminApiKeyAPI, projectsRoute *projects.ProjectsRoute, inviteRoute *invites.InvitesRoute, authService *auth.AuthService) *OrganizationRoute {
+func NewOrganizationRoute(adminApiKeyAPI *AdminApiKeyAPI, projectsRoute *projects.ProjectsRoute, inviteRoute *invites.InvitesRoute, modelProviderRoute *ModelProviderRoute, authService *auth.AuthService) *OrganizationRoute {
 	return &OrganizationRoute{
-		adminApiKeyAPI,
-		projectsRoute,
-		inviteRoute,
-		authService,
+		adminApiKeyAPI:     adminApiKeyAPI,
+		projectsRoute:      projectsRoute,
+		inviteRoute:        inviteRoute,
+		modelProviderRoute: modelProviderRoute,
+		authService:        authService,
 	}
 }
 
@@ -28,4 +30,5 @@ func (organizationRoute *OrganizationRoute) RegisterRouter(router gin.IRouter) {
 	organizationRoute.adminApiKeyAPI.RegisterRouter(organizationRouter)
 	organizationRoute.projectsRoute.RegisterRouter(organizationRouter)
 	organizationRoute.inviteRoute.RegisterRouter(organizationRouter)
+	organizationRoute.modelProviderRoute.RegisterRouter(organizationRouter)
 }

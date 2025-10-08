@@ -58,6 +58,7 @@ type ModelCatalog struct {
 // ModelCatalogFilter defines optional conditions for querying catalog entries.
 type ModelCatalogFilter struct {
 	IDs              *[]uint
+	PublicID         *string
 	IsModerated      *bool
 	Status           *ModelCatalogStatus
 	LastSyncedAfter  *time.Time
@@ -70,6 +71,7 @@ type ModelCatalogRepository interface {
 	Update(ctx context.Context, catalog *ModelCatalog) error
 	DeleteByID(ctx context.Context, id uint) error
 	FindByID(ctx context.Context, id uint) (*ModelCatalog, error)
+	FindByPublicID(ctx context.Context, publicID string) (*ModelCatalog, error)
 	FindByFilter(ctx context.Context, filter ModelCatalogFilter, p *query.Pagination) ([]*ModelCatalog, error)
 	Count(ctx context.Context, filter ModelCatalogFilter) (int64, error)
 }

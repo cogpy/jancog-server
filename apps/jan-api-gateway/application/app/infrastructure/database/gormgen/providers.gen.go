@@ -42,6 +42,7 @@ func newProvider(db *gorm.DB, opts ...gen.DOOption) provider {
 	_provider.APIKeyHint = field.NewString(tableName, "api_key_hint")
 	_provider.IsModerated = field.NewBool(tableName, "is_moderated")
 	_provider.Active = field.NewBool(tableName, "active")
+	_provider.Metadata = field.NewField(tableName, "metadata")
 	_provider.LastSyncedAt = field.NewTime(tableName, "last_synced_at")
 
 	_provider.fillFieldMap()
@@ -67,6 +68,7 @@ type provider struct {
 	APIKeyHint      field.String
 	IsModerated     field.Bool
 	Active          field.Bool
+	Metadata        field.Field
 	LastSyncedAt    field.Time
 
 	fieldMap map[string]field.Expr
@@ -98,6 +100,7 @@ func (p *provider) updateTableName(table string) *provider {
 	p.APIKeyHint = field.NewString(table, "api_key_hint")
 	p.IsModerated = field.NewBool(table, "is_moderated")
 	p.Active = field.NewBool(table, "active")
+	p.Metadata = field.NewField(table, "metadata")
 	p.LastSyncedAt = field.NewTime(table, "last_synced_at")
 
 	p.fillFieldMap()
@@ -115,7 +118,7 @@ func (p *provider) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 }
 
 func (p *provider) fillFieldMap() {
-	p.fieldMap = make(map[string]field.Expr, 15)
+	p.fieldMap = make(map[string]field.Expr, 16)
 	p.fieldMap["id"] = p.ID
 	p.fieldMap["created_at"] = p.CreatedAt
 	p.fieldMap["updated_at"] = p.UpdatedAt
@@ -130,6 +133,7 @@ func (p *provider) fillFieldMap() {
 	p.fieldMap["api_key_hint"] = p.APIKeyHint
 	p.fieldMap["is_moderated"] = p.IsModerated
 	p.fieldMap["active"] = p.Active
+	p.fieldMap["metadata"] = p.Metadata
 	p.fieldMap["last_synced_at"] = p.LastSyncedAt
 }
 
