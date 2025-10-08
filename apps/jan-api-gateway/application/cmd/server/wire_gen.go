@@ -43,6 +43,7 @@ import (
 	"menlo.ai/jan-api-gateway/app/interfaces/http/routes/v1/conversations"
 	"menlo.ai/jan-api-gateway/app/interfaces/http/routes/v1/mcp"
 	"menlo.ai/jan-api-gateway/app/interfaces/http/routes/v1/mcp/mcp_impl"
+	modelroute "menlo.ai/jan-api-gateway/app/interfaces/http/routes/v1/model"
 	organization2 "menlo.ai/jan-api-gateway/app/interfaces/http/routes/v1/organization"
 	"menlo.ai/jan-api-gateway/app/interfaces/http/routes/v1/organization/invites"
 	"menlo.ai/jan-api-gateway/app/interfaces/http/routes/v1/organization/projects"
@@ -95,7 +96,7 @@ func CreateApplication() (*Application, error) {
 	completionNonStreamHandler := conv.NewCompletionNonStreamHandler(chatCompletionClient, conversationService)
 	completionStreamHandler := conv.NewCompletionStreamHandler(chatCompletionClient, conversationService)
 	chatModelClient := inference.NewJanChatModelClient(client)
-	convCompletionAPI := conv.NewConvCompletionAPI(completionNonStreamHandler, completionStreamHandler, conversationService, authService, chatModelClient)
+	convCompletionAPI := conv.NewConvCompletionAPI(completionNonStreamHandler, completionStreamHandler, conversationService, authService, projectService, providerRegistryService, chatModelClient)
 	serperService := serpermcp.NewSerperService()
 	serperMCP := mcpimpl.NewSerperMCP(serperService)
 	convMCPAPI := conv.NewConvMCPAPI(authService, serperMCP)
@@ -104,8 +105,8 @@ func CreateApplication() (*Application, error) {
 	workspaceService := workspace.NewWorkspaceService(workspaceRepository, conversationRepository)
 	workspaceRoute := conv.NewWorkspaceRoute(authService, workspaceService)
 	conversationAPI := conversations.NewConversationAPI(conversationService, authService, workspaceService)
-	modelAPI := v1.NewModelAPI(chatModelClient)
-	providersAPI := v1.NewProvidersAPI(authService, projectService, providerRegistryService)
+	modelAPI := modelroute.NewModelAPI(chatModelClient, authService, projectService, providerRegistryService)
+	providersAPI := modelroute.NewProvidersAPI(authService, projectService, providerRegistryService)
 	mcpapi := mcp.NewMCPAPI(serperMCP, authService)
 	googleAuthAPI := google.NewGoogleAuthAPI(userService, authService)
 	authRoute := auth2.NewAuthRoute(googleAuthAPI, userService, authService)

@@ -30,6 +30,7 @@ func (route *ModelProviderRoute) RegisterRouter(router *gin.RouterGroup) {
 		route.authService.OrganizationMemberRoleMiddleware(auth.OrganizationMemberRuleOwnerOnly),
 	)
 	group.POST("", route.registerProvider)
+	group.PATCH("/:provider_public_id", route.updateProvider)
 }
 
 type registerProviderRequest struct {
@@ -58,6 +59,24 @@ type registerProviderModelSummary struct {
 	DisplayName   string  `json:"display_name"`
 	CatalogID     *string `json:"catalog_id,omitempty"`
 	CatalogStatus *string `json:"catalog_status,omitempty"`
+}
+
+type updateProviderRequest struct {
+	Name     *string            `json:"name"`
+	BaseURL  *string            `json:"base_url"`
+	APIKey   *string            `json:"api_key"`
+	Metadata *map[string]string `json:"metadata"`
+	Active   *bool              `json:"active"`
+}
+
+type providerDetailResponse struct {
+	ID       string            `json:"id"`
+	Slug     string            `json:"slug"`
+	Name     string            `json:"name"`
+	Vendor   string            `json:"vendor"`
+	BaseURL  string            `json:"base_url"`
+	Active   bool              `json:"active"`
+	Metadata map[string]string `json:"metadata,omitempty"`
 }
 
 func (route *ModelProviderRoute) registerProvider(reqCtx *gin.Context) {
@@ -130,4 +149,87 @@ func toRegisterProviderResponse(result *domainmodel.ProviderRegistrationResult) 
 	}
 
 	return resp
+}
+
+func (route *ModelProviderRoute) updateProvider(reqCtx *gin.Context) {
+	ctx := reqCtx.Request.Context()
+	orgEntity, ok := auth.GetAdminOrganizationFromContext(reqCtx)
+	if !ok {
+		return
+	}
+	publicID := strings.TrimSpace(reqCtx.Param("provider_public_id"))
+	if publicID == "" {
+		reqCtx.AbortWithStatusJSON(http.StatusBadRequest, responses.ErrorResponse{
+			Code:  "28dd6e4a-b7df-4e75-bb70-2b7f2a44d8ec",
+			Error: "provider id is required",
+		})
+		return
+	}
+
+	provider, err := route.providerRegistry.FindByPublicID(ctx, publicID)
+	if err != nil {
+		status := http.StatusBadRequest
+		if err.GetCode() == "d16271bf-54f5-4b25-bbd2-2353f1d5265c" {
+			status = http.StatusNotFound
+		}
+		reqCtx.AbortWithStatusJSON(status, responses.ErrorResponse{
+			Code:  err.GetCode(),
+			Error: err.GetMessage(),
+		})
+		return
+	}
+	if provider.OrganizationID == nil || *provider.OrganizationID != orgEntity.ID {
+		reqCtx.AbortWithStatusJSON(http.StatusNotFound, responses.ErrorResponse{
+			Code:  "a2b8c03f-4a15-4431-9a0f-0a5c8ef0e83d",
+			Error: "provider not found",
+		})
+		return
+	}
+	if provider.ProjectID != nil {
+		reqCtx.AbortWithStatusJSON(http.StatusBadRequest, responses.ErrorResponse{
+			Code:  "4b4ff5ab-6a55-4aa7-842c-9a8d6fd8b061",
+			Error: "only organization providers can be updated here",
+		})
+		return
+	}
+
+	var request updateProviderRequest
+	if err := reqCtx.ShouldBindJSON(&request); err != nil {
+		reqCtx.AbortWithStatusJSON(http.StatusBadRequest, responses.ErrorResponse{
+			Code:          "f9be18d0-5eac-46e2-8fd6-779b272918aa",
+			ErrorInstance: err,
+		})
+		return
+	}
+
+	input := domainmodel.UpdateProviderInput{
+		Name:     request.Name,
+		BaseURL:  request.BaseURL,
+		APIKey:   request.APIKey,
+		Metadata: request.Metadata,
+		Active:   request.Active,
+	}
+
+	updated, updateErr := route.providerRegistry.UpdateProvider(ctx, provider, input)
+	if updateErr != nil {
+		reqCtx.AbortWithStatusJSON(http.StatusBadRequest, responses.ErrorResponse{
+			Code:  updateErr.GetCode(),
+			Error: updateErr.GetMessage(),
+		})
+		return
+	}
+
+	reqCtx.JSON(http.StatusOK, toProviderDetailResponse(updated))
+}
+
+func toProviderDetailResponse(provider *domainmodel.Provider) providerDetailResponse {
+	return providerDetailResponse{
+		ID:       provider.PublicID,
+		Slug:     provider.Slug,
+		Name:     provider.DisplayName,
+		Vendor:   strings.ToLower(string(provider.Kind)),
+		BaseURL:  provider.BaseURL,
+		Active:   provider.Active,
+		Metadata: provider.Metadata,
+	}
 }

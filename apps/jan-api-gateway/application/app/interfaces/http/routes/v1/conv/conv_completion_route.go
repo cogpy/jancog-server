@@ -12,8 +12,11 @@ import (
 	"menlo.ai/jan-api-gateway/app/domain/auth"
 	"menlo.ai/jan-api-gateway/app/domain/common"
 	"menlo.ai/jan-api-gateway/app/domain/conversation"
+	domainmodel "menlo.ai/jan-api-gateway/app/domain/model"
+	"menlo.ai/jan-api-gateway/app/domain/project"
 	userdomain "menlo.ai/jan-api-gateway/app/domain/user"
 	"menlo.ai/jan-api-gateway/app/interfaces/http/responses"
+	modelroute "menlo.ai/jan-api-gateway/app/interfaces/http/routes/v1/model"
 	chatclient "menlo.ai/jan-api-gateway/app/utils/httpclients/chat"
 	"menlo.ai/jan-api-gateway/app/utils/idgen"
 	"menlo.ai/jan-api-gateway/app/utils/logger"
@@ -29,15 +32,27 @@ type ConvCompletionAPI struct {
 	completionStreamHandler    *CompletionStreamHandler
 	conversationService        *conversation.ConversationService
 	authService                *auth.AuthService
+	projectService             *project.ProjectService
+	providerRegistry           *domainmodel.ProviderRegistryService
 	modelClient                *chatclient.ChatModelClient
 }
 
-func NewConvCompletionAPI(completionNonStreamHandler *CompletionNonStreamHandler, completionStreamHandler *CompletionStreamHandler, conversationService *conversation.ConversationService, authService *auth.AuthService, modelClient *chatclient.ChatModelClient) *ConvCompletionAPI {
+func NewConvCompletionAPI(
+	completionNonStreamHandler *CompletionNonStreamHandler,
+	completionStreamHandler *CompletionStreamHandler,
+	conversationService *conversation.ConversationService,
+	authService *auth.AuthService,
+	projectService *project.ProjectService,
+	providerRegistry *domainmodel.ProviderRegistryService,
+	modelClient *chatclient.ChatModelClient,
+) *ConvCompletionAPI {
 	return &ConvCompletionAPI{
 		completionNonStreamHandler: completionNonStreamHandler,
 		completionStreamHandler:    completionStreamHandler,
 		conversationService:        conversationService,
 		authService:                authService,
+		projectService:             projectService,
+		providerRegistry:           providerRegistry,
 		modelClient:                modelClient,
 	}
 }
@@ -48,7 +63,11 @@ func (completionAPI *ConvCompletionAPI) RegisterRouter(router *gin.RouterGroup) 
 	chatRouter.POST("/completions", completionAPI.PostCompletion)
 
 	// Register other endpoints at root level
-	router.GET("/models", completionAPI.GetModels)
+	modelGroup := router.Group("",
+		completionAPI.authService.AppUserAuthMiddleware(),
+		completionAPI.authService.RegisteredUserMiddleware(),
+	)
+	modelGroup.GET("/models", completionAPI.GetModels)
 }
 
 // ExtendedChatCompletionRequest extends OpenAI's request with conversation field and store and store_reasoning fields
@@ -77,18 +96,12 @@ type ExtendedCompletionResponse struct {
 }
 
 // Model represents a model in the response
-type Model struct {
-	ID      string `json:"id"`
-	Object  string `json:"object"`
-	Created int    `json:"created"`
-	OwnedBy string `json:"owned_by"`
-}
+type Model = modelroute.Model
 
 // ModelsResponse represents the response for listing models
-type ModelsResponse struct {
-	Object string  `json:"object"`
-	Data   []Model `json:"data"`
-}
+type ModelsResponse = modelroute.ModelsResponse
+type ModelWithProvider = modelroute.ModelWithProvider
+type ModelsWithProviderResponse = modelroute.ModelsWithProviderResponse
 
 // PostCompletion
 // @Summary Create a conversation-aware chat completion
@@ -206,6 +219,23 @@ func (api *ConvCompletionAPI) PostCompletion(reqCtx *gin.Context) {
 // @Router /v1/conv/models [get]
 func (api *ConvCompletionAPI) GetModels(reqCtx *gin.Context) {
 	ctx := reqCtx.Request.Context()
+	includeProviderData := strings.EqualFold(reqCtx.GetHeader("X-PROVIDER-DATA"), "true")
+
+	_, _, providers, ok := modelroute.ResolveAccessibleProviders(reqCtx, api.authService, api.projectService, api.providerRegistry)
+	if !ok {
+		return
+	}
+
+	providerByID := make(map[uint]*domainmodel.Provider, len(providers))
+	providerIDs := make([]uint, 0, len(providers))
+	for _, provider := range providers {
+		if provider == nil {
+			continue
+		}
+		providerByID[provider.ID] = provider
+		providerIDs = append(providerIDs, provider.ID)
+	}
+
 	modelsResp, err := api.modelClient.ListModels(ctx)
 	if err != nil {
 		reqCtx.AbortWithStatusJSON(http.StatusBadGateway, responses.ErrorResponse{
@@ -215,20 +245,27 @@ func (api *ConvCompletionAPI) GetModels(reqCtx *gin.Context) {
 		return
 	}
 
-	// Convert to response format
-	responseData := make([]Model, len(modelsResp.Data))
-	for i, model := range modelsResp.Data {
-		responseData[i] = Model{
-			ID:      model.ID,
-			Object:  model.Object,
-			Created: model.Created,
-			OwnedBy: model.OwnedBy,
-		}
+	providerModels, err := api.providerRegistry.ListProviderModels(ctx, providerIDs)
+	if err != nil {
+		reqCtx.AbortWithStatusJSON(http.StatusInternalServerError, responses.ErrorResponse{
+			Code:          "f7f0f635-3f13-4c6f-b436-a78a5ccaa1af",
+			ErrorInstance: err,
+		})
+		return
+	}
+
+	if includeProviderData {
+		models := modelroute.BuildModelsWithProvider(modelsResp.Data, providerModels, providerByID)
+		reqCtx.JSON(http.StatusOK, ModelsWithProviderResponse{
+			Object: "list",
+			Data:   models,
+		})
+		return
 	}
 
 	reqCtx.JSON(http.StatusOK, ModelsResponse{
 		Object: "list",
-		Data:   responseData,
+		Data:   modelroute.MergeModels(modelsResp.Data, providerModels, providerByID),
 	})
 }
 

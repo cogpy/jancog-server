@@ -81,6 +81,10 @@ func (projectsRoute *ProjectsRoute) RegisterRouter(router gin.IRouter) {
 		permissionOwnerOnly,
 		projectsRoute.registerProjectProvider,
 	)
+	projectIdRouter.PATCH("/models/providers/:provider_public_id",
+		permissionOwnerOnly,
+		projectsRoute.updateProjectProvider,
+	)
 	projectsRoute.projectApiKeyRoute.RegisterRouter(projectIdRouter)
 }
 
@@ -396,6 +400,14 @@ type registerProjectProviderResponse struct {
 	Models    []registerProjectProviderModelSummary `json:"models"`
 }
 
+type updateProjectProviderRequest struct {
+	Name     *string            `json:"name"`
+	BaseURL  *string            `json:"base_url"`
+	APIKey   *string            `json:"api_key"`
+	Metadata *map[string]string `json:"metadata"`
+	Active   *bool              `json:"active"`
+}
+
 func (api *ProjectsRoute) registerProjectProvider(reqCtx *gin.Context) {
 	ctx := reqCtx.Request.Context()
 	orgEntity, ok := auth.GetAdminOrganizationFromContext(reqCtx)
@@ -448,6 +460,85 @@ func (api *ProjectsRoute) registerProjectProvider(reqCtx *gin.Context) {
 	reqCtx.JSON(http.StatusOK, resp)
 }
 
+func (api *ProjectsRoute) updateProjectProvider(reqCtx *gin.Context) {
+	ctx := reqCtx.Request.Context()
+	orgEntity, ok := auth.GetAdminOrganizationFromContext(reqCtx)
+	if !ok {
+		return
+	}
+	projectEntity, ok := auth.GetProjectFromContext(reqCtx)
+	if !ok {
+		reqCtx.AbortWithStatusJSON(http.StatusNotFound, responses.ErrorResponse{
+			Code:  "42ad3a04-6c17-40db-a10f-640be569c93f",
+			Error: "project not found",
+		})
+		return
+	}
+	publicID := strings.TrimSpace(reqCtx.Param("provider_public_id"))
+	if publicID == "" {
+		reqCtx.AbortWithStatusJSON(http.StatusBadRequest, responses.ErrorResponse{
+			Code:  "28dd6e4a-b7df-4e75-bb70-2b7f2a44d8ec",
+			Error: "provider id is required",
+		})
+		return
+	}
+
+	provider, err := api.providerRegistry.FindByPublicID(ctx, publicID)
+	if err != nil {
+		status := http.StatusBadRequest
+		if err.GetCode() == "d16271bf-54f5-4b25-bbd2-2353f1d5265c" {
+			status = http.StatusNotFound
+		}
+		reqCtx.AbortWithStatusJSON(status, responses.ErrorResponse{
+			Code:  err.GetCode(),
+			Error: err.GetMessage(),
+		})
+		return
+	}
+	if provider.OrganizationID == nil || *provider.OrganizationID != orgEntity.ID {
+		reqCtx.AbortWithStatusJSON(http.StatusNotFound, responses.ErrorResponse{
+			Code:  "a2b8c03f-4a15-4431-9a0f-0a5c8ef0e83d",
+			Error: "provider not found",
+		})
+		return
+	}
+	if provider.ProjectID == nil || *provider.ProjectID != projectEntity.ID {
+		reqCtx.AbortWithStatusJSON(http.StatusNotFound, responses.ErrorResponse{
+			Code:  "bbd0dd47-321d-4838-830d-4caa9c90f8af",
+			Error: "provider not found",
+		})
+		return
+	}
+
+	var request updateProjectProviderRequest
+	if err := reqCtx.ShouldBindJSON(&request); err != nil {
+		reqCtx.AbortWithStatusJSON(http.StatusBadRequest, responses.ErrorResponse{
+			Code:          "8d79e256-7a90-4b44-9903-2db1ab907f31",
+			ErrorInstance: err,
+		})
+		return
+	}
+
+	input := domainmodel.UpdateProviderInput{
+		Name:     request.Name,
+		BaseURL:  request.BaseURL,
+		APIKey:   request.APIKey,
+		Metadata: request.Metadata,
+		Active:   request.Active,
+	}
+
+	updated, updateErr := api.providerRegistry.UpdateProvider(ctx, provider, input)
+	if updateErr != nil {
+		reqCtx.AbortWithStatusJSON(http.StatusBadRequest, responses.ErrorResponse{
+			Code:  updateErr.GetCode(),
+			Error: updateErr.GetMessage(),
+		})
+		return
+	}
+
+	reqCtx.JSON(http.StatusOK, toProjectProviderResponse(updated, projectEntity.PublicID))
+}
+
 func toProjectRegisterProviderResponse(result *domainmodel.ProviderRegistrationResult, projectPublicID string) registerProjectProviderResponse {
 	provider := result.Provider
 	resp := registerProjectProviderResponse{
@@ -476,6 +567,19 @@ func toProjectRegisterProviderResponse(result *domainmodel.ProviderRegistrationR
 	}
 
 	return resp
+}
+
+func toProjectProviderResponse(provider *domainmodel.Provider, projectPublicID string) registerProjectProviderResponse {
+	return registerProjectProviderResponse{
+		ID:        provider.PublicID,
+		Slug:      provider.Slug,
+		Name:      provider.DisplayName,
+		Vendor:    strings.ToLower(string(provider.Kind)),
+		BaseURL:   provider.BaseURL,
+		Active:    provider.Active,
+		Metadata:  provider.Metadata,
+		ProjectID: projectPublicID,
+	}
 }
 
 // ProjectResponse defines the response structure for a project.

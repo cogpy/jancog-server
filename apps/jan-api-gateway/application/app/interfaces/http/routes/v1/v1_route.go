@@ -9,6 +9,7 @@ import (
 	"menlo.ai/jan-api-gateway/app/interfaces/http/routes/v1/conv"
 	"menlo.ai/jan-api-gateway/app/interfaces/http/routes/v1/conversations"
 	"menlo.ai/jan-api-gateway/app/interfaces/http/routes/v1/mcp"
+	modelroute "menlo.ai/jan-api-gateway/app/interfaces/http/routes/v1/model"
 	"menlo.ai/jan-api-gateway/app/interfaces/http/routes/v1/organization"
 	"menlo.ai/jan-api-gateway/app/interfaces/http/routes/v1/responses"
 	"menlo.ai/jan-api-gateway/config"
@@ -20,8 +21,8 @@ type V1Route struct {
 	convChatRoute      *conv.ConvChatRoute
 	convWorkspaceRoute *conv.WorkspaceRoute
 	conversationAPI    *conversations.ConversationAPI
-	modelAPI           *ModelAPI
-	providersAPI       *ProvidersAPI
+	modelAPI           *modelroute.ModelAPI
+	providersAPI       *modelroute.ProvidersAPI
 	mcpAPI             *mcp.MCPAPI
 	authRoute          *auth.AuthRoute
 	responsesRoute     *responses.ResponseRoute
@@ -33,8 +34,8 @@ func NewV1Route(
 	convChatRoute *conv.ConvChatRoute,
 	convWorkspaceRoute *conv.WorkspaceRoute,
 	conversationAPI *conversations.ConversationAPI,
-	modelAPI *ModelAPI,
-	providersAPI *ProvidersAPI,
+	modelAPI *modelroute.ModelAPI,
+	providersAPI *modelroute.ProvidersAPI,
 	mcpAPI *mcp.MCPAPI,
 	authRoute *auth.AuthRoute,
 	responsesRoute *responses.ResponseRoute,

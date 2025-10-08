@@ -10,6 +10,7 @@ import (
 	"time"
 
 	decimal "github.com/shopspring/decimal"
+	"gorm.io/gorm"
 	"menlo.ai/jan-api-gateway/app/domain/common"
 	"menlo.ai/jan-api-gateway/app/domain/organization"
 	"menlo.ai/jan-api-gateway/app/domain/query"
@@ -48,6 +49,14 @@ type RegisterProviderInput struct {
 	APIKey         string
 	Metadata       map[string]string
 	Active         bool
+}
+
+type UpdateProviderInput struct {
+	Name     *string
+	BaseURL  *string
+	APIKey   *string
+	Metadata *map[string]string
+	Active   *bool
 }
 
 type ProviderModelSyncResult struct {
@@ -128,13 +137,7 @@ func (s *ProviderRegistryService) RegisterProvider(ctx context.Context, input Re
 		encryptedAPIKey = cipher
 	}
 
-	var metadata map[string]string
-	if len(input.Metadata) > 0 {
-		metadata = make(map[string]string, len(input.Metadata))
-		for k, v := range input.Metadata {
-			metadata[strings.TrimSpace(k)] = strings.TrimSpace(v)
-		}
-	}
+	metadata := sanitizeMetadata(input.Metadata)
 
 	provider := &Provider{
 		PublicID:        publicID,
@@ -288,6 +291,65 @@ func (s *ProviderRegistryService) upsertProviderModel(ctx context.Context, provi
 	return pm, nil
 }
 
+func (s *ProviderRegistryService) FindByPublicID(ctx context.Context, publicID string) (*Provider, *common.Error) {
+	provider, err := s.providerRepo.FindByPublicID(ctx, publicID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, common.NewErrorWithMessage("provider not found", "d16271bf-54f5-4b25-bbd2-2353f1d5265c")
+		}
+		return nil, common.NewError(err, "1fcd6ba6-2c8e-4cca-bef7-799a1cf1c5d2")
+	}
+	return provider, nil
+}
+
+func (s *ProviderRegistryService) UpdateProvider(ctx context.Context, provider *Provider, input UpdateProviderInput) (*Provider, *common.Error) {
+	if input.Name != nil {
+		name := strings.TrimSpace(*input.Name)
+		if name == "" {
+			return nil, common.NewErrorWithMessage("provider name is required", "f65f5ec0-d9de-42da-8ae8-91f7f16c470a")
+		}
+		provider.DisplayName = name
+	}
+	if input.BaseURL != nil {
+		baseURL := strings.TrimSpace(*input.BaseURL)
+		if baseURL == "" {
+			return nil, common.NewErrorWithMessage("base_url is required", "6eaf9ef7-281b-45f7-9b8d-668f6d2f5d8e")
+		}
+		if _, err := url.ParseRequestURI(baseURL); err != nil {
+			return nil, common.NewError(err, "1fbfba8e-4fa9-4e06-8132-8d6754d88d5f")
+		}
+		provider.BaseURL = normalizeURL(baseURL)
+	}
+	if input.APIKey != nil {
+		key := strings.TrimSpace(*input.APIKey)
+		if key == "" {
+			provider.EncryptedAPIKey = ""
+			provider.APIKeyHint = nil
+		} else {
+			secret := strings.TrimSpace(environment_variables.EnvironmentVariables.MODEL_PROVIDER_SECRET)
+			if secret == "" {
+				return nil, common.NewErrorWithMessage("model provider secret is not configured", "ae950cb5-2f5a-4415-bc15-eec48c92610a")
+			}
+			cipher, err := crypto.EncryptString(secret, key)
+			if err != nil {
+				return nil, common.NewError(err, "b5bd5d1c-7811-4dd3-9f3c-43f0cb14e1f4")
+			}
+			provider.EncryptedAPIKey = cipher
+			provider.APIKeyHint = apiKeyHint(key)
+		}
+	}
+	if input.Metadata != nil {
+		provider.Metadata = sanitizeMetadata(*input.Metadata)
+	}
+	if input.Active != nil {
+		provider.Active = *input.Active
+	}
+	if err := s.providerRepo.Update(ctx, provider); err != nil {
+		return nil, common.NewError(err, "3f3a055d-a4d7-4dd2-8795-2b5e9b6d7677")
+	}
+	return provider, nil
+}
+
 func (s *ProviderRegistryService) ListAccessibleProviders(ctx context.Context, organizationID uint, projectIDs []uint) ([]*Provider, error) {
 	result := []*Provider{}
 	seen := map[uint]struct{}{}
@@ -336,6 +398,18 @@ func (s *ProviderRegistryService) ListAccessibleProviders(ctx context.Context, o
 	return result, nil
 }
 
+func (s *ProviderRegistryService) ListProviderModels(ctx context.Context, providerIDs []uint) ([]*ProviderModel, error) {
+	if len(providerIDs) == 0 {
+		return nil, nil
+	}
+	ids := providerIDs
+	active := ptr.ToBool(true)
+	return s.providerModelRepo.FindByFilter(ctx, ProviderModelFilter{
+		ProviderIDs: &ids,
+		Active:      active,
+	}, nil)
+}
+
 func (s *ProviderRegistryService) generateUniqueSlug(ctx context.Context, base string) (string, error) {
 	candidate := slugify(base)
 	if candidate == "" {
@@ -373,6 +447,25 @@ func normalizeURL(baseURL string) string {
 	s := strings.TrimSpace(baseURL)
 	s = strings.TrimRight(s, "/")
 	return s
+}
+
+func sanitizeMetadata(meta map[string]string) map[string]string {
+	if len(meta) == 0 {
+		return nil
+	}
+	cleaned := make(map[string]string, len(meta))
+	for k, v := range meta {
+		key := strings.TrimSpace(k)
+		value := strings.TrimSpace(v)
+		if key == "" {
+			continue
+		}
+		cleaned[key] = value
+	}
+	if len(cleaned) == 0 {
+		return nil
+	}
+	return cleaned
 }
 
 func providerKindFromVendor(vendor string) ProviderKind {
