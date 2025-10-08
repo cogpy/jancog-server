@@ -37,6 +37,19 @@ func (repo *ProviderGormRepository) applyFilter(query *gormgen.Query, sql gormge
 	if filter.Kind != nil {
 		sql = sql.Where(query.Provider.Kind.Eq(string(*filter.Kind)))
 	}
+	if filter.ProjectID != nil {
+		sql = sql.Where(query.Provider.ProjectID.Eq(*filter.ProjectID))
+	}
+	if filter.ProjectIDs != nil && len(*filter.ProjectIDs) > 0 {
+		sql = sql.Where(query.Provider.ProjectID.In((*filter.ProjectIDs)...))
+	}
+	if filter.WithoutProject != nil {
+		if *filter.WithoutProject {
+			sql = sql.Where(query.Provider.ProjectID.IsNull())
+		} else {
+			sql = sql.Where(query.Provider.ProjectID.IsNotNull())
+		}
+	}
 	if filter.Active != nil {
 		sql = sql.Where(query.Provider.Active.Is(*filter.Active))
 	}

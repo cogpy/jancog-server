@@ -19,6 +19,7 @@ type Provider struct {
 	PublicID        string         `gorm:"size:64;not null;uniqueIndex"`
 	Slug            string         `gorm:"size:128;not null;uniqueIndex"`
 	OrganizationID  *uint          `gorm:"index"`
+	ProjectID       *uint          `gorm:"index"`
 	DisplayName     string         `gorm:"size:255;not null"`
 	Kind            string         `gorm:"size:64;not null;index"`
 	BaseURL         string         `gorm:"size:512"`
@@ -53,6 +54,7 @@ func NewSchemaProvider(p *domainmodel.Provider) *Provider {
 		PublicID:        p.PublicID,
 		Slug:            p.Slug,
 		OrganizationID:  p.OrganizationID,
+		ProjectID:       p.ProjectID,
 		DisplayName:     p.DisplayName,
 		Kind:            string(p.Kind),
 		BaseURL:         p.BaseURL,
@@ -77,6 +79,7 @@ func (p *Provider) EtoD() *domainmodel.Provider {
 		PublicID:        p.PublicID,
 		Slug:            p.Slug,
 		OrganizationID:  p.OrganizationID,
+		ProjectID:       p.ProjectID,
 		DisplayName:     p.DisplayName,
 		Kind:            domainmodel.ProviderKind(p.Kind),
 		BaseURL:         p.BaseURL,

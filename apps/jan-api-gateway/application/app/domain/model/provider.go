@@ -35,6 +35,7 @@ type Provider struct {
 	PublicID        string `json:"public_id"`
 	Slug            string `json:"slug"` // unique, lowercase handle
 	OrganizationID  *uint
+	ProjectID       *uint
 	DisplayName     string       `json:"display_name"`
 	Kind            ProviderKind `json:"kind"`
 	BaseURL         string       `json:"base_url"` // e.g., https://api.openai.com/v1
@@ -54,6 +55,9 @@ type ProviderFilter struct {
 	PublicID         *string
 	Slug             *string
 	OrganizationID   *uint
+	ProjectID        *uint
+	ProjectIDs       *[]uint
+	WithoutProject   *bool
 	Kind             *ProviderKind
 	Active           *bool
 	IsModerated      *bool

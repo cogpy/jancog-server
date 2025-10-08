@@ -21,6 +21,7 @@ type V1Route struct {
 	convWorkspaceRoute *conv.WorkspaceRoute
 	conversationAPI    *conversations.ConversationAPI
 	modelAPI           *ModelAPI
+	providersAPI       *ProvidersAPI
 	mcpAPI             *mcp.MCPAPI
 	authRoute          *auth.AuthRoute
 	responsesRoute     *responses.ResponseRoute
@@ -33,6 +34,7 @@ func NewV1Route(
 	convWorkspaceRoute *conv.WorkspaceRoute,
 	conversationAPI *conversations.ConversationAPI,
 	modelAPI *ModelAPI,
+	providersAPI *ProvidersAPI,
 	mcpAPI *mcp.MCPAPI,
 	authRoute *auth.AuthRoute,
 	responsesRoute *responses.ResponseRoute,
@@ -44,6 +46,7 @@ func NewV1Route(
 		convWorkspaceRoute,
 		conversationAPI,
 		modelAPI,
+		providersAPI,
 		mcpAPI,
 		authRoute,
 		responsesRoute,
@@ -58,6 +61,7 @@ func (v1Route *V1Route) RegisterRouter(router gin.IRouter) {
 	v1Route.convWorkspaceRoute.RegisterRouter(v1Router)
 	v1Route.conversationAPI.RegisterRouter(v1Router)
 	v1Route.modelAPI.RegisterRouter(v1Router)
+	v1Route.providersAPI.RegisterRouter(v1Router)
 	v1Route.mcpAPI.RegisterRouter(v1Router)
 	v1Route.organizationRoute.RegisterRouter(v1Router)
 	v1Route.authRoute.RegisterRouter(v1Router)

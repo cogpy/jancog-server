@@ -35,6 +35,7 @@ func newProvider(db *gorm.DB, opts ...gen.DOOption) provider {
 	_provider.PublicID = field.NewString(tableName, "public_id")
 	_provider.Slug = field.NewString(tableName, "slug")
 	_provider.OrganizationID = field.NewUint(tableName, "organization_id")
+	_provider.ProjectID = field.NewUint(tableName, "project_id")
 	_provider.DisplayName = field.NewString(tableName, "display_name")
 	_provider.Kind = field.NewString(tableName, "kind")
 	_provider.BaseURL = field.NewString(tableName, "base_url")
@@ -61,6 +62,7 @@ type provider struct {
 	PublicID        field.String
 	Slug            field.String
 	OrganizationID  field.Uint
+	ProjectID       field.Uint
 	DisplayName     field.String
 	Kind            field.String
 	BaseURL         field.String
@@ -93,6 +95,7 @@ func (p *provider) updateTableName(table string) *provider {
 	p.PublicID = field.NewString(table, "public_id")
 	p.Slug = field.NewString(table, "slug")
 	p.OrganizationID = field.NewUint(table, "organization_id")
+	p.ProjectID = field.NewUint(table, "project_id")
 	p.DisplayName = field.NewString(table, "display_name")
 	p.Kind = field.NewString(table, "kind")
 	p.BaseURL = field.NewString(table, "base_url")
@@ -118,7 +121,7 @@ func (p *provider) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 }
 
 func (p *provider) fillFieldMap() {
-	p.fieldMap = make(map[string]field.Expr, 16)
+	p.fieldMap = make(map[string]field.Expr, 17)
 	p.fieldMap["id"] = p.ID
 	p.fieldMap["created_at"] = p.CreatedAt
 	p.fieldMap["updated_at"] = p.UpdatedAt
@@ -126,6 +129,7 @@ func (p *provider) fillFieldMap() {
 	p.fieldMap["public_id"] = p.PublicID
 	p.fieldMap["slug"] = p.Slug
 	p.fieldMap["organization_id"] = p.OrganizationID
+	p.fieldMap["project_id"] = p.ProjectID
 	p.fieldMap["display_name"] = p.DisplayName
 	p.fieldMap["kind"] = p.Kind
 	p.fieldMap["base_url"] = p.BaseURL

@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"menlo.ai/jan-api-gateway/app/domain/apikey"
 	"menlo.ai/jan-api-gateway/app/domain/auth"
+	domainmodel "menlo.ai/jan-api-gateway/app/domain/model"
 	"menlo.ai/jan-api-gateway/app/domain/organization"
 	"menlo.ai/jan-api-gateway/app/domain/project"
 	"menlo.ai/jan-api-gateway/app/domain/query"
@@ -24,6 +26,7 @@ type ProjectsRoute struct {
 	apiKeyService      *apikey.ApiKeyService
 	authService        *auth.AuthService
 	projectApiKeyRoute *projectApikeyRoute.ProjectApiKeyRoute
+	providerRegistry   *domainmodel.ProviderRegistryService
 }
 
 func NewProjectsRoute(
@@ -31,12 +34,14 @@ func NewProjectsRoute(
 	apiKeyService *apikey.ApiKeyService,
 	authService *auth.AuthService,
 	projectApiKeyRoute *projectApikeyRoute.ProjectApiKeyRoute,
+	providerRegistry *domainmodel.ProviderRegistryService,
 ) *ProjectsRoute {
 	return &ProjectsRoute{
 		projectService,
 		apiKeyService,
 		authService,
 		projectApiKeyRoute,
+		providerRegistry,
 	}
 }
 
@@ -71,6 +76,10 @@ func (projectsRoute *ProjectsRoute) RegisterRouter(router gin.IRouter) {
 	projectIdRouter.POST("/archive",
 		permissionOwnerOnly,
 		projectsRoute.ArchiveProject,
+	)
+	projectIdRouter.POST("/models/providers",
+		permissionOwnerOnly,
+		projectsRoute.registerProjectProvider,
 	)
 	projectsRoute.projectApiKeyRoute.RegisterRouter(projectIdRouter)
 }
@@ -356,6 +365,117 @@ func (api *ProjectsRoute) ArchiveProject(reqCtx *gin.Context) {
 	}
 
 	reqCtx.JSON(http.StatusOK, domainToProjectResponse(updatedEntity))
+}
+
+type registerProjectProviderRequest struct {
+	Name     string            `json:"name" binding:"required"`
+	Vendor   string            `json:"vendor" binding:"required"`
+	BaseURL  string            `json:"base_url" binding:"required"`
+	APIKey   string            `json:"api_key"`
+	Metadata map[string]string `json:"metadata"`
+	Active   *bool             `json:"active"`
+}
+
+type registerProjectProviderModelSummary struct {
+	ID            string  `json:"id"`
+	ModelKey      string  `json:"model_key"`
+	DisplayName   string  `json:"display_name"`
+	CatalogID     *string `json:"catalog_id,omitempty"`
+	CatalogStatus *string `json:"catalog_status,omitempty"`
+}
+
+type registerProjectProviderResponse struct {
+	ID        string                                `json:"id"`
+	Slug      string                                `json:"slug"`
+	Name      string                                `json:"name"`
+	Vendor    string                                `json:"vendor"`
+	BaseURL   string                                `json:"base_url"`
+	Active    bool                                  `json:"active"`
+	Metadata  map[string]string                     `json:"metadata,omitempty"`
+	ProjectID string                                `json:"project_id"`
+	Models    []registerProjectProviderModelSummary `json:"models"`
+}
+
+func (api *ProjectsRoute) registerProjectProvider(reqCtx *gin.Context) {
+	ctx := reqCtx.Request.Context()
+	orgEntity, ok := auth.GetAdminOrganizationFromContext(reqCtx)
+	if !ok {
+		return
+	}
+	projectEntity, ok := auth.GetProjectFromContext(reqCtx)
+	if !ok {
+		reqCtx.AbortWithStatusJSON(http.StatusNotFound, responses.ErrorResponse{
+			Code:  "42ad3a04-6c17-40db-a10f-640be569c93f",
+			Error: "project not found",
+		})
+		return
+	}
+
+	var request registerProjectProviderRequest
+	if err := reqCtx.ShouldBindJSON(&request); err != nil {
+		reqCtx.AbortWithStatusJSON(http.StatusBadRequest, responses.ErrorResponse{
+			Code:          "4dfe7980-9d40-47fb-8cf1-1864dfd1e3eb",
+			ErrorInstance: err,
+		})
+		return
+	}
+
+	active := true
+	if request.Active != nil {
+		active = *request.Active
+	}
+
+	result, err := api.providerRegistry.RegisterProvider(ctx, domainmodel.RegisterProviderInput{
+		OrganizationID: orgEntity.ID,
+		ProjectID:      projectEntity.ID,
+		Name:           request.Name,
+		Vendor:         request.Vendor,
+		BaseURL:        request.BaseURL,
+		APIKey:         request.APIKey,
+		Metadata:       request.Metadata,
+		Active:         active,
+	})
+	if err != nil {
+		status := http.StatusBadRequest
+		reqCtx.AbortWithStatusJSON(status, responses.ErrorResponse{
+			Code:  err.GetCode(),
+			Error: err.GetMessage(),
+		})
+		return
+	}
+
+	resp := toProjectRegisterProviderResponse(result, projectEntity.PublicID)
+	reqCtx.JSON(http.StatusOK, resp)
+}
+
+func toProjectRegisterProviderResponse(result *domainmodel.ProviderRegistrationResult, projectPublicID string) registerProjectProviderResponse {
+	provider := result.Provider
+	resp := registerProjectProviderResponse{
+		ID:        provider.PublicID,
+		Slug:      provider.Slug,
+		Name:      provider.DisplayName,
+		Vendor:    strings.ToLower(string(provider.Kind)),
+		BaseURL:   provider.BaseURL,
+		Active:    provider.Active,
+		Metadata:  provider.Metadata,
+		ProjectID: projectPublicID,
+	}
+
+	for _, model := range result.Models {
+		item := registerProjectProviderModelSummary{
+			ID:          model.ProviderModel.PublicID,
+			ModelKey:    model.ProviderModel.ModelKey,
+			DisplayName: model.ProviderModel.DisplayName,
+		}
+		if model.Catalog != nil {
+			item.CatalogID = ptr.ToString(model.Catalog.PublicID)
+			status := string(model.Catalog.Status)
+			item.CatalogStatus = ptr.ToString(status)
+		}
+		resp.Models = append(resp.Models, item)
+	}
+
+	return resp
 }
 
 // ProjectResponse defines the response structure for a project.

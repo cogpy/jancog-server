@@ -11,6 +11,7 @@ import (
 
 	decimal "github.com/shopspring/decimal"
 	"menlo.ai/jan-api-gateway/app/domain/common"
+	"menlo.ai/jan-api-gateway/app/domain/organization"
 	"menlo.ai/jan-api-gateway/app/domain/query"
 	"menlo.ai/jan-api-gateway/app/utils/crypto"
 	"menlo.ai/jan-api-gateway/app/utils/httpclients"
@@ -40,6 +41,7 @@ func NewProviderRegistryService(
 
 type RegisterProviderInput struct {
 	OrganizationID uint
+	ProjectID      uint
 	Name           string
 	Vendor         string
 	BaseURL        string
@@ -74,15 +76,23 @@ func (s *ProviderRegistryService) RegisterProvider(ctx context.Context, input Re
 
 	kind := providerKindFromVendor(input.Vendor)
 
-	var organizationID *uint
+	orgIDValue := organization.DEFAULT_ORGANIZATION.ID
 	if input.OrganizationID != 0 {
-		organizationID = ptr.ToUint(input.OrganizationID)
+		orgIDValue = input.OrganizationID
+	}
+	organizationID := ptr.ToUint(orgIDValue)
+	var projectID *uint
+	if input.ProjectID != 0 {
+		projectID = ptr.ToUint(input.ProjectID)
 	}
 
 	if kind != ProviderCustom {
 		filter := ProviderFilter{Kind: &kind}
-		if organizationID != nil {
-			filter.OrganizationID = organizationID
+		filter.OrganizationID = organizationID
+		if projectID != nil {
+			filter.ProjectID = projectID
+		} else {
+			filter.WithoutProject = ptr.ToBool(true)
 		}
 		count, err := s.providerRepo.Count(ctx, filter)
 		if err != nil {
@@ -130,6 +140,7 @@ func (s *ProviderRegistryService) RegisterProvider(ctx context.Context, input Re
 		PublicID:        publicID,
 		Slug:            slug,
 		OrganizationID:  organizationID,
+		ProjectID:       projectID,
 		DisplayName:     name,
 		Kind:            kind,
 		BaseURL:         normalizeURL(baseURL),
@@ -275,6 +286,54 @@ func (s *ProviderRegistryService) upsertProviderModel(ctx context.Context, provi
 		return nil, common.NewError(err, "2f0d0864-d0b0-4f4c-90c5-5e4eb2c451e5")
 	}
 	return pm, nil
+}
+
+func (s *ProviderRegistryService) ListAccessibleProviders(ctx context.Context, organizationID uint, projectIDs []uint) ([]*Provider, error) {
+	result := []*Provider{}
+	seen := map[uint]struct{}{}
+	appendUnique := func(items []*Provider) {
+		for _, provider := range items {
+			if provider == nil {
+				continue
+			}
+			if _, exists := seen[provider.ID]; exists {
+				continue
+			}
+			seen[provider.ID] = struct{}{}
+			result = append(result, provider)
+		}
+	}
+	if organization.DEFAULT_ORGANIZATION != nil {
+		globalProviders, err := s.providerRepo.FindByFilter(ctx, ProviderFilter{
+			OrganizationID: ptr.ToUint(organization.DEFAULT_ORGANIZATION.ID),
+			WithoutProject: ptr.ToBool(true),
+		}, nil)
+		if err != nil {
+			return nil, err
+		}
+		appendUnique(globalProviders)
+	}
+	orgID := ptr.ToUint(organizationID)
+	orgProviders, err := s.providerRepo.FindByFilter(ctx, ProviderFilter{
+		OrganizationID: orgID,
+		WithoutProject: ptr.ToBool(true),
+	}, nil)
+	if err != nil {
+		return nil, err
+	}
+	appendUnique(orgProviders)
+	if len(projectIDs) > 0 {
+		ids := projectIDs
+		projectProviders, err := s.providerRepo.FindByFilter(ctx, ProviderFilter{
+			OrganizationID: orgID,
+			ProjectIDs:     &ids,
+		}, nil)
+		if err != nil {
+			return nil, err
+		}
+		appendUnique(projectProviders)
+	}
+	return result, nil
 }
 
 func (s *ProviderRegistryService) generateUniqueSlug(ctx context.Context, base string) (string, error) {

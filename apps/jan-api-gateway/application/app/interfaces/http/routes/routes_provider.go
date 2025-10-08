@@ -35,6 +35,7 @@ var RouteProvider = wire.NewSet(
 	conv_chat.NewWorkspaceRoute,
 	mcp.NewMCPAPI,
 	v1.NewModelAPI,
+	v1.NewProvidersAPI,
 	responses.NewResponseRoute,
 	v1.NewV1Route,
 	conversations.NewConversationAPI,
