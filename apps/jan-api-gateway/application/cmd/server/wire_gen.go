@@ -7,15 +7,14 @@
 package main
 
 import (
-	"context"
 	"gorm.io/gorm"
 	"menlo.ai/jan-api-gateway/app/domain/apikey"
 	"menlo.ai/jan-api-gateway/app/domain/auth"
 	"menlo.ai/jan-api-gateway/app/domain/conversation"
 	"menlo.ai/jan-api-gateway/app/domain/cron"
-	"menlo.ai/jan-api-gateway/app/domain/inference_model_registry"
 	"menlo.ai/jan-api-gateway/app/domain/invite"
 	"menlo.ai/jan-api-gateway/app/domain/mcp/serpermcp"
+	"menlo.ai/jan-api-gateway/app/domain/model"
 	"menlo.ai/jan-api-gateway/app/domain/organization"
 	"menlo.ai/jan-api-gateway/app/domain/project"
 	"menlo.ai/jan-api-gateway/app/domain/response"
@@ -27,6 +26,7 @@ import (
 	"menlo.ai/jan-api-gateway/app/infrastructure/database/repository/conversationrepo"
 	"menlo.ai/jan-api-gateway/app/infrastructure/database/repository/inviterepo"
 	"menlo.ai/jan-api-gateway/app/infrastructure/database/repository/itemrepo"
+	"menlo.ai/jan-api-gateway/app/infrastructure/database/repository/modelrepo"
 	"menlo.ai/jan-api-gateway/app/infrastructure/database/repository/organizationrepo"
 	"menlo.ai/jan-api-gateway/app/infrastructure/database/repository/projectrepo"
 	"menlo.ai/jan-api-gateway/app/infrastructure/database/repository/responserepo"
@@ -43,12 +43,12 @@ import (
 	"menlo.ai/jan-api-gateway/app/interfaces/http/routes/v1/conversations"
 	"menlo.ai/jan-api-gateway/app/interfaces/http/routes/v1/mcp"
 	"menlo.ai/jan-api-gateway/app/interfaces/http/routes/v1/mcp/mcp_impl"
+	"menlo.ai/jan-api-gateway/app/interfaces/http/routes/v1/model"
 	organization2 "menlo.ai/jan-api-gateway/app/interfaces/http/routes/v1/organization"
 	"menlo.ai/jan-api-gateway/app/interfaces/http/routes/v1/organization/invites"
 	"menlo.ai/jan-api-gateway/app/interfaces/http/routes/v1/organization/projects"
 	"menlo.ai/jan-api-gateway/app/interfaces/http/routes/v1/organization/projects/api_keys"
 	"menlo.ai/jan-api-gateway/app/interfaces/http/routes/v1/responses"
-	"menlo.ai/jan-api-gateway/app/utils/httpclients/jan_inference"
 )
 
 import (
@@ -78,21 +78,25 @@ func CreateApplication() (*Application, error) {
 	authService := auth.NewAuthService(userService, apiKeyService, organizationService, projectService, inviteService)
 	adminApiKeyAPI := organization2.NewAdminApiKeyAPI(organizationService, authService, apiKeyService, userService)
 	projectApiKeyRoute := apikeys.NewProjectApiKeyRoute(organizationService, projectService, apiKeyService, userService)
-	projectsRoute := projects.NewProjectsRoute(projectService, apiKeyService, authService, projectApiKeyRoute)
+	providerRepository := modelrepo.NewProviderGormRepository(transactionDatabase)
+	providerModelRepository := modelrepo.NewProviderModelGormRepository(transactionDatabase)
+	providerModelService := model.NewProviderModelService(providerModelRepository)
+	modelCatalogRepository := modelrepo.NewModelCatalogGormRepository(transactionDatabase)
+	modelCatalogService := model.NewModelCatalogService(modelCatalogRepository)
+	providerRegistryService := model.NewProviderRegistryService(providerRepository, providerModelService, modelCatalogService)
+	inferenceProvider := inference.NewInferenceProvider()
+	projectsRoute := projects.NewProjectsRoute(projectService, apiKeyService, authService, projectApiKeyRoute, providerRegistryService, inferenceProvider)
 	invitesRoute := invites.NewInvitesRoute(inviteService, projectService, organizationService, authService)
-	organizationRoute := organization2.NewOrganizationRoute(adminApiKeyAPI, projectsRoute, invitesRoute, authService)
-	context := provideContext()
-	janInferenceClient := janinference.NewJanInferenceClient(context)
-	inferenceProvider := inference.NewJanInferenceProvider(janInferenceClient)
-	completionAPI := chat.NewCompletionAPI(inferenceProvider, authService)
-	chatRoute := chat.NewChatRoute(authService, completionAPI)
+	modelProviderRoute := organization2.NewModelProviderRoute(authService, providerRegistryService, inferenceProvider)
+	organizationRoute := organization2.NewOrganizationRoute(adminApiKeyAPI, projectsRoute, invitesRoute, modelProviderRoute, authService)
+	completionAPI := chat.NewCompletionAPI(inferenceProvider, providerRegistryService)
+	chatRoute := chat.NewChatRoute(completionAPI)
 	conversationRepository := conversationrepo.NewConversationGormRepository(transactionDatabase)
 	itemRepository := itemrepo.NewItemGormRepository(transactionDatabase)
 	conversationService := conversation.NewService(conversationRepository, itemRepository)
 	completionNonStreamHandler := conv.NewCompletionNonStreamHandler(inferenceProvider, conversationService)
 	completionStreamHandler := conv.NewCompletionStreamHandler(inferenceProvider, conversationService)
-	inferenceModelRegistry := inferencemodelregistry.NewInferenceModelRegistry(redisCacheService, janInferenceClient)
-	convCompletionAPI := conv.NewConvCompletionAPI(completionNonStreamHandler, completionStreamHandler, conversationService, authService, inferenceModelRegistry)
+	convCompletionAPI := conv.NewConvCompletionAPI(completionNonStreamHandler, completionStreamHandler, conversationService, authService, projectService, providerRegistryService, providerModelService, inferenceProvider)
 	serperService := serpermcp.NewSerperService()
 	serperMCP := mcpimpl.NewSerperMCP(serperService)
 	convMCPAPI := conv.NewConvMCPAPI(authService, serperMCP)
@@ -101,19 +105,20 @@ func CreateApplication() (*Application, error) {
 	workspaceService := workspace.NewWorkspaceService(workspaceRepository, conversationRepository)
 	workspaceRoute := conv.NewWorkspaceRoute(authService, workspaceService)
 	conversationAPI := conversations.NewConversationAPI(conversationService, authService, workspaceService)
-	modelAPI := v1.NewModelAPI(inferenceModelRegistry)
+	modelAPI := modelroute.NewModelAPI(inferenceProvider, authService, projectService, providerRegistryService, providerModelService)
+	providersAPI := modelroute.NewProvidersAPI(authService, projectService, providerRegistryService)
 	mcpapi := mcp.NewMCPAPI(serperMCP, authService)
 	googleAuthAPI := google.NewGoogleAuthAPI(userService, authService)
 	authRoute := auth2.NewAuthRoute(googleAuthAPI, userService, authService)
 	responseRepository := responserepo.NewResponseGormRepository(transactionDatabase)
 	responseService := response.NewResponseService(responseRepository, itemRepository, conversationService)
-	responseModelService := response.NewResponseModelService(userService, authService, apiKeyService, conversationService, responseService, inferenceModelRegistry)
+	responseModelService := response.NewResponseModelService(userService, authService, apiKeyService, conversationService, responseService, inferenceProvider, providerRegistryService)
 	streamModelService := response.NewStreamModelService(responseModelService)
 	nonStreamModelService := response.NewNonStreamModelService(responseModelService)
 	responseRoute := responses.NewResponseRoute(responseModelService, authService, responseService, streamModelService, nonStreamModelService)
-	v1Route := v1.NewV1Route(organizationRoute, chatRoute, convChatRoute, workspaceRoute, conversationAPI, modelAPI, mcpapi, authRoute, responseRoute)
+	v1Route := v1.NewV1Route(organizationRoute, chatRoute, convChatRoute, workspaceRoute, conversationAPI, modelAPI, providersAPI, mcpapi, authRoute, responseRoute)
 	httpServer := http.NewHttpServer(v1Route)
-	cronService := cron.NewService(janInferenceClient, inferenceModelRegistry)
+	cronService := cron.NewCronService()
 	application := &Application{
 		HttpServer:  httpServer,
 		CronService: cronService,
@@ -136,8 +141,18 @@ func CreateDataInitializer() (*DataInitializer, error) {
 	inviteRepository := inviterepo.NewInviteGormRepository(transactionDatabase)
 	inviteService := invite.NewInviteService(inviteRepository)
 	authService := auth.NewAuthService(userService, apiKeyService, organizationService, projectService, inviteService)
+	providerRepository := modelrepo.NewProviderGormRepository(transactionDatabase)
+	providerModelRepository := modelrepo.NewProviderModelGormRepository(transactionDatabase)
+	providerModelService := model.NewProviderModelService(providerModelRepository)
+	modelCatalogRepository := modelrepo.NewModelCatalogGormRepository(transactionDatabase)
+	modelCatalogService := model.NewModelCatalogService(modelCatalogRepository)
+	providerRegistryService := model.NewProviderRegistryService(providerRepository, providerModelService, modelCatalogService)
+	inferenceProvider := inference.NewInferenceProvider()
 	dataInitializer := &DataInitializer{
-		authService: authService,
+		authService:         authService,
+		providerRegistry:    providerRegistryService,
+		modelCatalogService: modelCatalogService,
+		inferenceProvider:   inferenceProvider,
 	}
 	return dataInitializer, nil
 }
@@ -146,8 +161,4 @@ func CreateDataInitializer() (*DataInitializer, error) {
 
 func ProvideDatabase() *gorm.DB {
 	return database.DB
-}
-
-func provideContext() context.Context {
-	return context.Background()
 }

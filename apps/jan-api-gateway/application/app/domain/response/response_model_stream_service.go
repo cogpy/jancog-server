@@ -14,9 +14,9 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 	"menlo.ai/jan-api-gateway/app/domain/common"
 	"menlo.ai/jan-api-gateway/app/domain/conversation"
+	domainmodel "menlo.ai/jan-api-gateway/app/domain/model"
 	requesttypes "menlo.ai/jan-api-gateway/app/interfaces/http/requests"
 	responsetypes "menlo.ai/jan-api-gateway/app/interfaces/http/responses"
-	janinference "menlo.ai/jan-api-gateway/app/utils/httpclients/jan_inference"
 	"menlo.ai/jan-api-gateway/app/utils/idgen"
 	"menlo.ai/jan-api-gateway/app/utils/logger"
 	"menlo.ai/jan-api-gateway/app/utils/ptr"
@@ -102,7 +102,7 @@ func (h *StreamModelService) createTextDeltaEvent(itemID string, sequenceNumber 
 }
 
 // CreateStreamResponse handles the business logic for creating a streaming response
-func (h *StreamModelService) CreateStreamResponse(reqCtx *gin.Context, request *requesttypes.CreateResponseRequest, key string, conv *conversation.Conversation, responseEntity *Response, chatCompletionRequest *openai.ChatCompletionRequest) {
+func (h *StreamModelService) CreateStreamResponse(reqCtx *gin.Context, request *requesttypes.CreateResponseRequest, provider *domainmodel.Provider, key string, conv *conversation.Conversation, responseEntity *Response, chatCompletionRequest *openai.ChatCompletionRequest) {
 	// Validate request
 	success, err := h.validateRequest(request)
 	if !success {
@@ -177,9 +177,8 @@ func (h *StreamModelService) CreateStreamResponse(reqCtx *gin.Context, request *
 	// Note: User messages are already added to conversation by the main response handler
 	// No need to add them again here to avoid duplication
 
-	// Process with Jan inference client for streaming
-	janInferenceClient := janinference.NewJanInferenceClient(reqCtx)
-	streamErr := h.processStreamingResponse(reqCtx, janInferenceClient, key, *chatCompletionRequest, responseID, conv)
+	// Process with chat completion client for streaming
+	streamErr := h.processStreamingResponse(reqCtx, provider, *chatCompletionRequest, responseID, conv)
 	if streamErr != nil {
 		// Check if context was cancelled (timeout)
 		if reqCtx.Request.Context().Err() == context.DeadlineExceeded {
@@ -238,8 +237,8 @@ func (h *StreamModelService) emitStreamEvent(reqCtx *gin.Context, eventType stri
 	reqCtx.Writer.Flush()
 }
 
-// processStreamingResponse processes the streaming response from Jan inference using two channels
-func (h *StreamModelService) processStreamingResponse(reqCtx *gin.Context, _ *janinference.JanInferenceClient, _ string, request openai.ChatCompletionRequest, responseID string, conv *conversation.Conversation) error {
+// processStreamingResponse processes the streaming response using two channels
+func (h *StreamModelService) processStreamingResponse(reqCtx *gin.Context, provider *domainmodel.Provider, request openai.ChatCompletionRequest, responseID string, conv *conversation.Conversation) error {
 	// Create buffered channels for data and errors
 	dataChan := make(chan string, ChannelBufferSize)
 	errChan := make(chan error, ErrorBufferSize)
@@ -248,7 +247,7 @@ func (h *StreamModelService) processStreamingResponse(reqCtx *gin.Context, _ *ja
 	wg.Add(1)
 
 	// Start streaming in a goroutine
-	go h.streamResponseToChannel(reqCtx, request, dataChan, errChan, responseID, conv, &wg)
+	go h.streamResponseToChannel(reqCtx, provider, request, dataChan, errChan, responseID, conv, &wg)
 
 	// Wait for streaming to complete and close channels
 	go func() {
@@ -373,7 +372,7 @@ func (h *StreamModelService) parseOpenAIStreamReasoningData(jsonStr string) stri
 }
 
 // streamResponseToChannel handles the streaming response and sends data/errors to channels
-func (h *StreamModelService) streamResponseToChannel(reqCtx *gin.Context, request openai.ChatCompletionRequest, dataChan chan<- string, errChan chan<- error, responseID string, conv *conversation.Conversation, wg *sync.WaitGroup) {
+func (h *StreamModelService) streamResponseToChannel(reqCtx *gin.Context, provider *domainmodel.Provider, request openai.ChatCompletionRequest, dataChan chan<- string, errChan chan<- error, responseID string, conv *conversation.Conversation, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	startTime := time.Now()
@@ -436,17 +435,23 @@ func (h *StreamModelService) streamResponseToChannel(reqCtx *gin.Context, reques
 	dataChan <- fmt.Sprintf("event: response.content_part.added\ndata: %s\n\n", string(eventJSON))
 	sequenceNumber++
 
-	// Create a custom streaming client that processes OpenAI streaming format
-	req := janinference.JanInferenceRestyClient.R().SetBody(request)
-	resp, err := req.
-		SetContext(reqCtx.Request.Context()).
-		SetDoNotParseResponse(true).
-		Post("/v1/chat/completions")
+	// Create chat client from provider
+	chatClient, clientErr := h.ResponseModelService.inferenceProvider.GetChatCompletionClient(provider)
+	if clientErr != nil {
+		errChan <- clientErr
+		return
+	}
+
+	reader, err := chatClient.CreateChatCompletionStream(reqCtx.Request.Context(), "", request)
 	if err != nil {
 		errChan <- err
 		return
 	}
-	defer resp.RawResponse.Body.Close()
+	defer func() {
+		if closeErr := reader.Close(); closeErr != nil {
+			logger.GetLogger().Warnf("failed to close streaming reader: %v", closeErr)
+		}
+	}()
 
 	// Buffer for accumulating content chunks
 	var contentBuffer strings.Builder
@@ -461,7 +466,7 @@ func (h *StreamModelService) streamResponseToChannel(reqCtx *gin.Context, reques
 	var reasoningComplete bool
 
 	// Process the stream line by line
-	scanner := bufio.NewScanner(resp.RawResponse.Body)
+	scanner := bufio.NewScanner(reader)
 	for scanner.Scan() {
 		// Check if context was cancelled
 		if h.checkContextCancellation(reqCtx, errChan) {

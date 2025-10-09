@@ -13,6 +13,7 @@ import (
 
 type EnvironmentVariable struct {
 	JAN_INFERENCE_MODEL_URL     string
+	JAN_INFERENCE_SETUP         bool
 	SERPER_API_KEY              string
 	JWT_SECRET                  []byte
 	OAUTH2_GOOGLE_CLIENT_ID     string
@@ -21,6 +22,7 @@ type EnvironmentVariable struct {
 	DB_POSTGRESQL_WRITE_DSN     string
 	DB_POSTGRESQL_READ1_DSN     string
 	APIKEY_SECRET               string
+	MODEL_PROVIDER_SECRET       string
 	ALLOWED_CORS_HOSTS          []string
 	SMTP_HOST                   string
 	SMTP_PORT                   int
@@ -67,8 +69,8 @@ func (ev *EnvironmentVariable) LoadFromEnv() {
 				if v.Field(i).Type().Elem().Kind() == reflect.Uint8 {
 					v.Field(i).SetBytes([]byte(envValue))
 				} else if v.Field(i).Type().Elem().Kind() == reflect.String {
-					hosts := strings.Split(envValue, ",")
-					v.Field(i).Set(reflect.ValueOf(hosts))
+					entries := strings.Split(envValue, ",")
+					v.Field(i).Set(reflect.ValueOf(entries))
 				} else {
 					logger.GetLogger().Errorf("Unsupported slice type for %s", field.Name)
 				}

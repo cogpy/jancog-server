@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -13,11 +14,13 @@ import (
 	"menlo.ai/jan-api-gateway/app/domain/auth"
 	"menlo.ai/jan-api-gateway/app/domain/common"
 	"menlo.ai/jan-api-gateway/app/domain/conversation"
-	inferencemodelregistry "menlo.ai/jan-api-gateway/app/domain/inference_model_registry"
+	domainmodel "menlo.ai/jan-api-gateway/app/domain/model"
+	"menlo.ai/jan-api-gateway/app/domain/organization"
 	"menlo.ai/jan-api-gateway/app/domain/user"
+	"menlo.ai/jan-api-gateway/app/infrastructure/inference"
 	requesttypes "menlo.ai/jan-api-gateway/app/interfaces/http/requests"
 	responsetypes "menlo.ai/jan-api-gateway/app/interfaces/http/responses"
-	janinference "menlo.ai/jan-api-gateway/app/utils/httpclients/jan_inference"
+	"menlo.ai/jan-api-gateway/app/utils/logger"
 	"menlo.ai/jan-api-gateway/app/utils/ptr"
 )
 
@@ -28,6 +31,7 @@ type ResponseCreationResult struct {
 	ChatCompletionRequest *openai.ChatCompletionRequest
 	APIKey                string
 	IsStreaming           bool
+	Provider              *domainmodel.Provider
 }
 
 // ResponseModelService handles the business logic for response API endpoints
@@ -39,7 +43,8 @@ type ResponseModelService struct {
 	responseService       *ResponseService
 	streamModelService    *StreamModelService
 	nonStreamModelService *NonStreamModelService
-	modelRegistry         *inferencemodelregistry.InferenceModelRegistry
+	inferenceProvider     *inference.InferenceProvider
+	providerRegistry      *domainmodel.ProviderRegistryService
 }
 
 // NewResponseModelService creates a new ResponseModelService instance
@@ -49,7 +54,8 @@ func NewResponseModelService(
 	apikeyService *apikey.ApiKeyService,
 	conversationService *conversation.ConversationService,
 	responseService *ResponseService,
-	modelRegistry *inferencemodelregistry.InferenceModelRegistry,
+	inferenceProvider *inference.InferenceProvider,
+	providerRegistry *domainmodel.ProviderRegistryService,
 ) *ResponseModelService {
 	responseModelService := &ResponseModelService{
 		UserService:         userService,
@@ -57,7 +63,8 @@ func NewResponseModelService(
 		apikeyService:       apikeyService,
 		conversationService: conversationService,
 		responseService:     responseService,
-		modelRegistry:       modelRegistry,
+		inferenceProvider:   inferenceProvider,
+		providerRegistry:    providerRegistry,
 	}
 
 	// Initialize specialized handlers
@@ -79,30 +86,44 @@ func (h *ResponseModelService) CreateResponse(ctx context.Context, userID uint, 
 	// TODO add the logic to get the API key for the user
 	key := ""
 
-	// Check if model exists in registry
-	mToE := h.modelRegistry.GetModelToEndpoints(ctx)
-	endpoints, ok := mToE[request.Model]
-	if !ok {
-		return nil, common.NewErrorWithMessage("Model validation error", "h8i9j0k1-l2m3-4567-hijk-890123456789")
-	}
-
 	// Convert response request to chat completion request using domain service
 	chatCompletionRequest := h.responseService.ConvertToChatCompletionRequest(request)
 	if chatCompletionRequest == nil {
 		return nil, common.NewErrorWithMessage("Input validation error", "i9j0k1l2-m3n4-5678-ijkl-901234567890")
 	}
 
-	// Check if model endpoint exists
-	janInferenceClient := janinference.NewJanInferenceClient(ctx)
-	endpointExists := false
-	for _, endpoint := range endpoints {
-		if endpoint == janInferenceClient.BaseURL {
-			endpointExists = true
+	// Get provider based on the requested model
+	provider, providerErr := h.providerRegistry.GetProviderForModel(ctx, request.Model, organization.DEFAULT_ORGANIZATION.ID, nil)
+	if providerErr != nil {
+		logger.GetLogger().Warnf("Failed to find provider for model '%s': %v, using default provider", request.Model, providerErr)
+	}
+
+	// Create model client for validation
+	modelClient, clientErr := h.inferenceProvider.GetChatModelClient(provider)
+	if clientErr != nil {
+		return nil, common.NewError(clientErr, "0199600c-3b65-7618-83ca-443a583d91d1")
+	}
+
+	// Check if model exists
+	modelsResp, modelErr := modelClient.ListModels(ctx)
+	if modelErr != nil {
+		return nil, common.NewError(modelErr, "0199600c-3b65-7618-83ca-443a583d91d0")
+	}
+
+	modelAvailable := false
+	for _, model := range modelsResp.Data {
+		if model.ID == request.Model {
+			modelAvailable = true
 			break
 		}
 	}
 
-	if !endpointExists {
+	if !modelAvailable {
+		return nil, common.NewErrorWithMessage("Model validation error", "h8i9j0k1-l2m3-4567-hijk-890123456789")
+	}
+
+	serviceBaseURL := provider.BaseURL
+	if strings.TrimSpace(serviceBaseURL) == "" {
 		return nil, common.NewErrorWithMessage("Model validation error", "h8i9j0k1-l2m3-4567-hijk-890123456789")
 	}
 
@@ -178,6 +199,7 @@ func (h *ResponseModelService) CreateResponse(ctx context.Context, userID uint, 
 		ChatCompletionRequest: chatCompletionRequest,
 		APIKey:                key,
 		IsStreaming:           isStreaming,
+		Provider:              provider,
 	}, nil
 }
 
