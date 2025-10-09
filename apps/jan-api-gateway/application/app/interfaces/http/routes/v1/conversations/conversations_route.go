@@ -344,19 +344,22 @@ func (api *ConversationAPI) CreateConversationHandler(reqCtx *gin.Context) {
 	}
 
 	// validate workspace ID belongs to user and fetch the workspace public ID
-	workspace, err := api.workspaceService.GetWorkspaceByPublicIDAndUserID(ctx, request.WorkspaceID, userId)
-	if err != nil {
-		reqCtx.AbortWithStatusJSON(http.StatusBadRequest, responses.ErrorResponse{
-			Code:          "019952d0-1dc9-746e-82ff-dd42b1e7930f",
-			ErrorInstance: err.GetError(),
-		})
-		return
+	var workspacePublicID *string
+	if trimmedID := strings.TrimSpace(request.WorkspaceID); trimmedID != "" {
+		workspace, err := api.workspaceService.GetWorkspaceByPublicIDAndUserID(ctx, trimmedID, userId)
+		if err != nil {
+			reqCtx.AbortWithStatusJSON(http.StatusBadRequest, responses.ErrorResponse{
+				Code:          "019952d0-1dc9-746e-82ff-dd42b1e7930f",
+				ErrorInstance: err.GetError(),
+			})
+			return
+		}
+
+		workspacePublicID = ptr.ToString(workspace.PublicID)
 	}
 
-	workspacePublicID := workspace.PublicID
-
 	// Create conversation
-	conv, err := api.conversationService.CreateConversation(ctx, userId, &request.Title, true, request.Metadata, &workspacePublicID)
+	conv, err := api.conversationService.CreateConversation(ctx, userId, &request.Title, true, request.Metadata, workspacePublicID)
 	if err != nil {
 		reqCtx.AbortWithStatusJSON(http.StatusBadRequest, responses.ErrorResponse{
 			Code:          "019952d0-3e32-76ba-a97f-711223df2c84",

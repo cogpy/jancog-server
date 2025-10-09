@@ -3,8 +3,6 @@
 package main
 
 import (
-	"context"
-
 	"github.com/google/wire"
 	"gorm.io/gorm"
 	"menlo.ai/jan-api-gateway/app/domain"
@@ -24,7 +22,6 @@ func CreateApplication() (*Application, error) {
 		routes.RouteProvider,
 		http.NewHttpServer,
 		wire.Struct(new(Application), "*"),
-		provideContext,
 	)
 	return nil, nil
 }
@@ -42,8 +39,4 @@ func CreateDataInitializer() (*DataInitializer, error) {
 		wire.Struct(new(DataInitializer), "*"),
 	)
 	return nil, nil
-}
-
-func provideContext() context.Context {
-	return context.Background()
 }

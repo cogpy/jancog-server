@@ -221,9 +221,9 @@ func (responseRoute *ResponseRoute) handleResponseCreation(reqCtx *gin.Context, 
 
 	// Delegate to appropriate handler based on streaming preference
 	if result.IsStreaming {
-		responseRoute.streamModelService.CreateStreamResponse(reqCtx, request, result.APIKey, result.Conversation, result.Response, result.ChatCompletionRequest)
+		responseRoute.streamModelService.CreateStreamResponse(reqCtx, request, result.Provider, result.APIKey, result.Conversation, result.Response, result.ChatCompletionRequest)
 	} else {
-		responseRoute.nonStreamModelService.CreateNonStreamResponseHandler(reqCtx, request, result.APIKey, result.Conversation, result.Response, result.ChatCompletionRequest)
+		responseRoute.nonStreamModelService.CreateNonStreamResponseHandler(reqCtx, request, result.Provider, result.APIKey, result.Conversation, result.Response, result.ChatCompletionRequest)
 	}
 }
 
