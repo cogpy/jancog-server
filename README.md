@@ -156,6 +156,9 @@ If you plan to run real LLM models (not mock servers) and have an NVIDIA GPU:
    - **Swagger UI**: http://localhost:8080/api/swagger/index.html
    - **Health Check**: http://localhost:8080/healthcheck
    - **Version Info**: http://localhost:8080/v1/version
+   - **OpenCog AtomSpace**: http://localhost:8100 (hypergraph database)
+   - **OpenCog CogServer**: http://localhost:8101 (agent scheduler)
+   - **OpenCog PLN**: http://localhost:8102 (reasoning engine)
 
 #### Option 2: Real LLM Setup (Requires NVIDIA GPU)
 
@@ -186,6 +189,65 @@ For production deployments, modify the Helm values in `charts/jan-server/values.
 
 ```bash
 helm install jan-server ./charts/jan-server
+```
+
+## 🧠 OpenCog AGI Integration
+
+Jan Server includes OpenCog, an open-source framework for Artificial General Intelligence (AGI), providing advanced reasoning and knowledge representation capabilities.
+
+### OpenCog Services
+
+**AtomSpace** (Port 8100) - Hypergraph knowledge database
+```bash
+# Create a concept
+curl -X POST http://localhost:8100/api/v1/atoms \
+  -H "Content-Type: application/json" \
+  -d '{"type": "ConceptNode", "name": "human", "truth_value": {"strength": 0.9, "confidence": 0.8}}'
+
+# Query concepts
+curl http://localhost:8100/api/v1/atoms?type=ConceptNode
+```
+
+**CogServer** (Port 8101) - Cognitive agent scheduler
+```bash
+# Create an agent
+curl -X POST http://localhost:8101/api/v1/agents \
+  -H "Content-Type: application/json" \
+  -d '{"name": "pattern_matcher", "type": "PatternMatchingAgent", "config": {}}'
+
+# Start the agent
+curl -X POST http://localhost:8101/api/v1/agents/pattern_matcher/start
+```
+
+**PLN** (Port 8102) - Probabilistic reasoning engine
+```bash
+# Perform deduction inference
+curl -X POST http://localhost:8102/api/v1/infer/deduction \
+  -H "Content-Type: application/json" \
+  -d '{"premise1": {"strength": 0.9, "confidence": 0.8}, "premise2": {"strength": 0.8, "confidence": 0.7}}'
+```
+
+### OpenCog Documentation
+
+- **Quick Reference**: [docs/OPENCOG_QUICKREF.md](docs/OPENCOG_QUICKREF.md)
+- **Detailed Examples**: [docs/OPENCOG_EXAMPLES.md](docs/OPENCOG_EXAMPLES.md)
+- **Integration Tests**: Run `./scripts/test-opencog-services.sh`
+
+### Configuring OpenCog Services
+
+In `charts/jan-server/values.yaml`:
+
+```yaml
+opencog:
+  atomspace:
+    enabled: true  # Enable/disable AtomSpace
+    replicaCount: 1
+  cogserver:
+    enabled: true  # Enable/disable CogServer
+    replicaCount: 1
+  pln:
+    enabled: true  # Enable/disable PLN
+    replicaCount: 1
 ```
 
 ## ⚙️ Configuration
@@ -256,7 +318,25 @@ docker build -t jan-api-gateway:latest ./apps/jan-api-gateway
 
 # Build Inference Model
 docker build -t jan-inference-model:latest ./apps/jan-inference-model
+
+# Build OpenCog Services
+docker build -t opencog-atomspace:latest ./apps/opencog-atomspace
+docker build -t opencog-cogserver:latest ./apps/opencog-cogserver
+docker build -t opencog-pln:latest ./apps/opencog-pln
 ```
+
+### Testing OpenCog Services
+
+Run the integration test suite for OpenCog services:
+
+```bash
+./scripts/test-opencog-services.sh
+```
+
+This will test:
+- AtomSpace knowledge storage and retrieval
+- CogServer agent management and scheduling
+- PLN probabilistic reasoning and inference
 
 ### Database Migrations
 
