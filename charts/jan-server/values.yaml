@@ -496,3 +496,87 @@ inference:
       # Example:
       # - name: "CUSTOM_VAR"
       #   value: "custom_value"
+
+# =============================================================================
+# OpenCog Services Configuration
+# =============================================================================
+
+# OpenCog AtomSpace - Hypergraph database service
+opencog:
+  atomspace:
+    enabled: true # Set to true to enable OpenCog AtomSpace
+    replicaCount: 1
+
+    image:
+      repository: menloltd/opencog-atomspace
+      pullPolicy: IfNotPresent
+      tag: "latest"
+
+    service:
+      type: ClusterIP
+      port: 8100
+
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 250m
+        memory: 256Mi
+
+    env: []
+    # Example:
+    # - name: "LOG_LEVEL"
+    #   value: "INFO"
+
+  # OpenCog CogServer - Cognitive algorithm scheduler
+  cogserver:
+    enabled: true # Set to true to enable OpenCog CogServer
+    replicaCount: 1
+
+    image:
+      repository: menloltd/opencog-cogserver
+      pullPolicy: IfNotPresent
+      tag: "latest"
+
+    service:
+      type: ClusterIP
+      port: 8101
+
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 250m
+        memory: 256Mi
+
+    env:
+      - name: ATOMSPACE_URL
+        value: "http://{{ .Release.Name }}-opencog-atomspace:8100"
+
+  # OpenCog PLN - Probabilistic Logic Networks
+  pln:
+    enabled: true # Set to true to enable OpenCog PLN
+    replicaCount: 1
+
+    image:
+      repository: menloltd/opencog-pln
+      pullPolicy: IfNotPresent
+      tag: "latest"
+
+    service:
+      type: ClusterIP
+      port: 8102
+
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 250m
+        memory: 256Mi
+
+    env:
+      - name: ATOMSPACE_URL
+        value: "http://{{ .Release.Name }}-opencog-atomspace:8100"

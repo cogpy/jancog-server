@@ -9,6 +9,7 @@ Jan Server is a Kubernetes-native platform consisting of multiple microservices 
 - **OpenAI-Compatible API**: Full compatibility with OpenAI's chat completion API
 - **Multi-Tenant Architecture**: Organization and project-based access control
 - **AI Model Inference**: Scalable model serving with health monitoring
+- **OpenCog AGI Integration**: AtomSpace, CogServer, and PLN for advanced reasoning
 - **Database Management**: PostgreSQL with read/write replicas
 - **Authentication & Authorization**: JWT + Google OAuth2 integration
 - **API Key Management**: Secure API key generation and management
@@ -33,6 +34,7 @@ The core API service that provides OpenAI-compatible endpoints and manages all c
 - API key management at organization and project levels
 - Model Context Protocol (MCP) support for external tools
 - Web search integration via Serper API
+- Integration with OpenCog services for AGI capabilities
 - Comprehensive monitoring and profiling capabilities
 - Database transaction management with automatic rollback
 
@@ -42,6 +44,51 @@ The core API service that provides OpenAI-compatible endpoints and manages all c
 - JWT authentication and Google OAuth2
 - Swagger/OpenAPI documentation
 - Built-in pprof profiling with Grafana Pyroscope integration
+
+### OpenCog AtomSpace
+The hypergraph database service for knowledge representation.
+
+**Key Features:**
+- Store and manage atoms (concepts, predicates, relationships)
+- Truth value management (strength and confidence)
+- Pattern matching and querying
+- Relationship creation and management
+- REST API for all operations
+
+**Technology Stack:**
+- Python 3.11 with Flask
+- In-memory hypergraph storage
+- Gunicorn for production deployment
+
+### OpenCog CogServer
+The cognitive algorithm scheduler and container service.
+
+**Key Features:**
+- Create and manage cognitive agents
+- Schedule and execute agents in cycles
+- Agent status monitoring and error tracking
+- Support for multiple agent types
+- Dynamic start/stop control
+
+**Technology Stack:**
+- Python 3.11 with Flask
+- Threading-based scheduler
+- Gunicorn for production deployment
+
+### OpenCog PLN (Probabilistic Logic Networks)
+The probabilistic reasoning and inference engine.
+
+**Key Features:**
+- Deduction, induction, and abduction inference
+- Conjunction, disjunction, and negation operations
+- Truth value revision and combination
+- Inference history tracking
+- Statistical analysis of reasoning operations
+
+**Technology Stack:**
+- Python 3.11 with Flask
+- Probabilistic logic implementation
+- Gunicorn for production deployment
 
 ### PostgreSQL Database
 The persistent data storage layer with enterprise-grade features.
@@ -180,9 +227,21 @@ jan-server/
 │   │   ├── application/           # Go application code
 │   │   ├── docker/               # Docker configuration
 │   │   └── README.md            # Service-specific documentation
-│   └── jan-inference-model/       # AI model inference service
-│       ├── application/           # Python application code
-│       └── Dockerfile           # Container configuration
+│   ├── jan-inference-model/       # AI model inference service
+│   │   ├── application/           # Python application code
+│   │   └── Dockerfile           # Container configuration
+│   ├── opencog-atomspace/         # OpenCog AtomSpace hypergraph database
+│   │   ├── app.py               # Python application
+│   │   ├── Dockerfile           # Container configuration
+│   │   └── README.md            # Service documentation
+│   ├── opencog-cogserver/         # OpenCog cognitive algorithm scheduler
+│   │   ├── app.py               # Python application
+│   │   ├── Dockerfile           # Container configuration
+│   │   └── README.md            # Service documentation
+│   └── opencog-pln/               # OpenCog Probabilistic Logic Networks
+│       ├── app.py               # Python application
+│       ├── Dockerfile           # Container configuration
+│       └── README.md            # Service documentation
 ├── charts/                        # Helm charts
 │   └── jan-server/           # Main deployment chart
 ├── scripts/                      # Deployment and utility scripts

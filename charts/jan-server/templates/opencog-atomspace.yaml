@@ -1,0 +1,67 @@
+{{- if .Values.opencog.atomspace.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "jan-server.fullname" . }}-opencog-atomspace
+  labels:
+    {{- include "jan-server.labels" . | nindent 4 }}
+    app.kubernetes.io/component: opencog-atomspace
+spec:
+  replicas: {{ .Values.opencog.atomspace.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "jan-server.name" . }}-opencog-atomspace
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "jan-server.name" . }}-opencog-atomspace
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: opencog-atomspace
+    spec:
+      containers:
+        - name: opencog-atomspace
+          image: "{{ .Values.opencog.atomspace.image.repository }}:{{ .Values.opencog.atomspace.image.tag }}"
+          imagePullPolicy: {{ .Values.opencog.atomspace.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8100
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthcheck
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthcheck
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.opencog.atomspace.resources | nindent 12 }}
+          env:
+            {{- range .Values.opencog.atomspace.env }}
+            - name: {{ .name }}
+              value: {{ .value | quote }}
+            {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "jan-server.fullname" . }}-opencog-atomspace
+  labels:
+    {{- include "jan-server.labels" . | nindent 4 }}
+    app.kubernetes.io/component: opencog-atomspace
+spec:
+  type: {{ .Values.opencog.atomspace.service.type }}
+  ports:
+    - port: {{ .Values.opencog.atomspace.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: {{ include "jan-server.name" . }}-opencog-atomspace
+    app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
