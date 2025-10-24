@@ -257,6 +257,20 @@ spec:
             - name: ORGANIZATION_ADMIN_EMAIL
               value: "{{ .Values.gateway.secrets.adminEmail }}"
             
+            {{/* OpenCog Services Configuration */}}
+            {{- if .Values.opencog.atomspace.enabled }}
+            - name: OPENCOG_ATOMSPACE_URL
+              value: "http://{{ include "jan-server.fullname" . }}-opencog-atomspace:{{ .Values.opencog.atomspace.service.port }}"
+            {{- end }}
+            {{- if .Values.opencog.cogserver.enabled }}
+            - name: OPENCOG_COGSERVER_URL
+              value: "http://{{ include "jan-server.fullname" . }}-opencog-cogserver:{{ .Values.opencog.cogserver.service.port }}"
+            {{- end }}
+            {{- if .Values.opencog.pln.enabled }}
+            - name: OPENCOG_PLN_URL
+              value: "http://{{ include "jan-server.fullname" . }}-opencog-pln:{{ .Values.opencog.pln.service.port }}"
+            {{- end }}
+            
             {{/* Additional environment variables */}}
             {{- range .Values.gateway.extraEnv }}
             - name: {{ .name }}

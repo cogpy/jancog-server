@@ -9,7 +9,18 @@ graph TB
     subgraph "Kubernetes Cluster"
         subgraph "Jan API Gateway Service"
             GATEWAY[Jan API Gateway<br/>Port 8080]
-            GATEWAY_FEATURES[Features:<br/>- OpenAI Compatible API<br/>- Multi-tenant Auth<br/>- MCP Protocol<br/>- Web Search<br/>- Profiling]
+            GATEWAY_FEATURES[Features:<br/>- OpenAI Compatible API<br/>- Multi-tenant Auth<br/>- MCP Protocol<br/>- Web Search<br/>- Profiling<br/>- OpenCog Integration]
+        end
+        
+        subgraph "OpenCog Services"
+            ATOMSPACE[OpenCog AtomSpace<br/>Port 8100]
+            ATOMSPACE_FEATURES[Features:<br/>- Hypergraph Database<br/>- Knowledge Storage<br/>- Pattern Matching]
+            
+            COGSERVER[OpenCog CogServer<br/>Port 8101]
+            COGSERVER_FEATURES[Features:<br/>- Agent Scheduler<br/>- Cognitive Algorithms<br/>- Process Management]
+            
+            PLN[OpenCog PLN<br/>Port 8102]
+            PLN_FEATURES[Features:<br/>- Probabilistic Reasoning<br/>- Inference Rules<br/>- Logic Networks]
         end
         
         subgraph "Jan Inference Model Service"
@@ -41,14 +52,23 @@ graph TB
     GATEWAY --> SERPER
     GATEWAY --> GOOGLE
     GATEWAY --> PYROSCOPE
+    GATEWAY --> ATOMSPACE
+    GATEWAY --> COGSERVER
+    GATEWAY --> PLN
+    
+    %% OpenCog internal connections
+    COGSERVER --> ATOMSPACE
+    PLN --> ATOMSPACE
     
     %% Styling
     classDef clientClass fill:#e1f5fe
     classDef serviceClass fill:#f3e5f5
+    classDef opencogClass fill:#e8eaf6
     classDef dbClass fill:#e8f5e8
     classDef externalClass fill:#fff3e0
     
     class WEB,API_CLIENT,MOBILE,CLI clientClass
     class GATEWAY,INFERENCE,GATEWAY_FEATURES,INFERENCE_FEATURES serviceClass
+    class ATOMSPACE,COGSERVER,PLN,ATOMSPACE_FEATURES,COGSERVER_FEATURES,PLN_FEATURES opencogClass
     class POSTGRES,DB_FEATURES dbClass
     class SERPER,GOOGLE,PYROSCOPE externalClass
